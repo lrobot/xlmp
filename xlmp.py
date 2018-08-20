@@ -585,7 +585,10 @@ class TestHandler(tornado.web.RequestHandler):
         pass
 
     def get(self, *args, **kwargs):
-        self.write('test')
+        url = 'http://hdl1a.douyucdn.cn/live/93589rj2A06KTO9F.flv?wsAuth=f78742554b1d18c2305c17031754c734&token=app-wp-0-93589-b1fe47e79f40a3a6da87bff500b5ad30&logo=0&expire=0&pt=1'
+        LOADER.load(url)
+        self.finish('loading %s' % url)
+        # self.write('test')
 
 
 class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
@@ -605,7 +608,7 @@ class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
         pass
 
     def on_pong(self, data=None):
-        logging.info('pang')
+        # logging.info('pong')
         if self.last_message != TRACKER.state:
             logging.info(TRACKER.state)
             for ws_user in self.users:
