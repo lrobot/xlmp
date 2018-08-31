@@ -324,7 +324,7 @@ class IndexHandler(tornado.web.RequestHandler):
         pass
 
     def get(self, *args, **kwargs):
-        self.render('index.tpl')
+        self.render('base.tpl')
 
 
 class DlnaPlayerHandler(tornado.web.RequestHandler):
@@ -345,6 +345,7 @@ class WebPlayerHandler(tornado.web.RequestHandler):
         src = kwargs.get('src')
         if not os.path.exists('%s/%s' % (VIDEO_PATH, src)):
             self.redirect('/')
+            return
         self.render('player.tpl', src=src, position=hist_load(src))
 
 
@@ -408,7 +409,7 @@ class SaveHandler(tornado.web.RequestHandler):
     def data_received(self, chunk):
         pass
 
-    @tornado.gen.coroutine
+    # @tornado.gen.coroutine
     @tornado.concurrent.run_on_executor
     def post(self, *args, **kwargs):
         position = self.get_argument('position', 0)
@@ -585,7 +586,7 @@ class TestHandler(tornado.web.RequestHandler):
         pass
 
     def get(self, *args, **kwargs):
-        url = 'http://hdl1a.douyucdn.cn/live/93589rj2A06KTO9F.flv?wsAuth=f78742554b1d18c2305c17031754c734&token=app-wp-0-93589-b1fe47e79f40a3a6da87bff500b5ad30&logo=0&expire=0&pt=1'
+        # url = 'http://%s/douyu' % self.request.headers['Host']
         LOADER.load(url)
         self.finish('loading %s' % url)
         # self.write('test')
@@ -594,7 +595,7 @@ class TestHandler(tornado.web.RequestHandler):
 class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
     """DLNA info retriever use web socket"""
     users = set()
-    last_message = None
+    last_message = {}
 
     def data_received(self, chunk):
         pass
@@ -602,39 +603,21 @@ class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
     def open(self, *args, **kwargs):
         logging.info('ws connected: %s', self.request.remote_ip)
         self.users.add(self)
-        # DlnaWebSocketHandler.last_message = 'Websocket user connected.'
 
     def on_message(self, message):
         pass
 
     def on_pong(self, data=None):
-        # logging.info('pong')
         if self.last_message != TRACKER.state:
             logging.info(TRACKER.state)
             for ws_user in self.users:
                 ws_user.write_message(TRACKER.state)
             self.last_message = TRACKER.state.copy()
-        # DlnaWebSocketHandler.send_dlna_state()
 
     def on_close(self):
         logging.info('ws close: %s', self.request.remote_ip)
         self.users.remove(self)
-        # DlnaWebSocketHandler.last_message = 'Websocket user disconnected.'
 
-    # @classmethod
-    # def send_dlna_state(cls):
-        # if cls.last_message != TRACKER.state:
-            # logging.info(cls.last_message)
-            # for ws_user in cls.users:
-                # ws_user.write_message(TRACKER.state)
-            # cls.last_message = TRACKER.state.copy()
-
-
-# context arrangement (to-do)
-    # /sys/ done
-    # /fs/ done
-    # /dlna/ done
-    # /wp/ # web player # done # to test
 
 HANDLERS = [
     (r'/', IndexHandler),
@@ -661,7 +644,7 @@ SETTINGS = {
     'static_path': 'static',
     'template_path': 'views',
     'gzip': True,
-    # "debug": True,
+    "debug": True,
     'websocket_ping_interval': 0.2,
 }
 
