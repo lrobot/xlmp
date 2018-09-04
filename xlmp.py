@@ -325,7 +325,7 @@ class IndexHandler(tornado.web.RequestHandler):
         pass
 
     def get(self, *args, **kwargs):
-        self.render('base.tpl')
+        self.render('base.html')
 
 
 class DlnaPlayerHandler(tornado.web.RequestHandler):
@@ -334,7 +334,7 @@ class DlnaPlayerHandler(tornado.web.RequestHandler):
         pass
 
     def get(self, *args, **kwargs):
-        self.render('dlna.tpl')
+        self.render('dlna.html')
 
 
 class WebPlayerHandler(tornado.web.RequestHandler):
@@ -347,7 +347,7 @@ class WebPlayerHandler(tornado.web.RequestHandler):
         if not os.path.exists('%s/%s' % (VIDEO_PATH, src)):
             self.redirect('/')
             return
-        self.render('player.tpl', src=src, position=hist_load(src))
+        self.render('player.html', src=src, position=hist_load(src))
 
 
 class HistoryHandler(tornado.web.RequestHandler):
@@ -457,7 +457,7 @@ class DlnaNextHandler(tornado.web.RequestHandler):
             url = 'http://%s/video/%s' % (self.request.headers['Host'], quote(next_file))
             LOADER.load(url)
         else:
-            self.finish("Can't get next file")
+            self.finish({'warning': "Can't get next file"})
 
 
 class DlnaHandler(tornado.web.RequestHandler):
@@ -475,12 +475,10 @@ class DlnaHandler(tornado.web.RequestHandler):
             ret = TRACKER.dmr.seek(kwargs.get('progress'))
         else:
             return
-        # if ret:
-            # self.finish('Done.')
-        # else:
-        self.write('opt: %s ' % opt)
+        if ret:
+            self.finish({'success': 'opt: %s ' % opt})
         if not ret:
-            self.finish('Error: Failed!')
+            self.finish({'error': 'Failed!'})
 
 
 class DlnaInfoHandler(tornado.web.RequestHandler):
@@ -506,11 +504,11 @@ class DlnaVolumeControlHandler(tornado.web.RequestHandler):
         elif opt == 'down':
             vol -= 1
         if not 0 <= vol <= 100:
-            self.finish('volume range exceeded')
+            self.finish({'warning':'volume range exceeded'})
         elif TRACKER.dmr.volume(vol):
             self.finish(str(vol))
         else:
-            self.finish('failed')
+            self.finish({'error': 'failed'})
 
 
 class SystemCommandHandler(tornado.web.RequestHandler):
@@ -537,28 +535,6 @@ class SystemCommandHandler(tornado.web.RequestHandler):
             self.finish(shutil.copyfile('%s.bak' % HISTORY_DB_FILE, HISTORY_DB_FILE))
         else:
             raise tornado.web.HTTPError(403, reason='no such operation')
-# @post('/suspend')
-# def suspend():
-    # """Suepend server"""
-    # if sys.platform == 'win32':
-        # import ctypes
-        # dll = ctypes.WinDLL('powrprof.dll')
-        # if dll.SetSuspendState(0, 1, 0):
-            # return 'Suspending...'
-        # else:
-            # return 'Suspend Failure!'
-    # else:
-        # return 'OS not supported!'
-
-
-# @post('/shutdown')
-# def shutdown():
-    # """Shutdown server"""
-    # if sys.platform == 'win32':
-        # os.system("shutdown.exe -f -s -t 0")
-    # else:
-        # os.system("sudo /sbin/shutdown -h now")
-    # return 'shutting down...'
 
 
 class SetDmrHandler(tornado.web.RequestHandler):
@@ -588,10 +564,7 @@ class TestHandler(tornado.web.RequestHandler):
         pass
 
     def get(self, *args, **kwargs):
-        # url = 'http://%s/douyu' % self.request.headers['Host']
-        LOADER.load(url)
-        self.finish('loading %s' % url)
-        # self.write('test')
+        self.write('test')
 
 
 class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
@@ -646,7 +619,7 @@ SETTINGS = {
     'static_path': 'static',
     'template_path': 'views',
     'gzip': True,
-    "debug": True,
+    'debug': True,
     'websocket_ping_interval': 0.2,
 }
 
@@ -660,7 +633,7 @@ APP = tornado.web.Application(HANDLERS, **SETTINGS)
 TRACKER = DMRTracker()
 LOADER = DLNALoader()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     # initialize DataBase
     run_sql('''create table if not exists history
                     (FILENAME text PRIMARY KEY not null,
@@ -668,7 +641,6 @@ if __name__ == "__main__":
                     DURATION float, LATEST_DATE datetime not null);''')
     TRACKER.start()
     LOADER.start()
-    # tornado.ioloop.PeriodicCallback(DlnaWebSocketHandler.send_dlna_state, 200).start()
     # if sys.platform == 'win32':
         # os.system('start http://127.0.0.1:8888/')
     APP.listen(8888, xheaders=True)
