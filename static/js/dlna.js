@@ -9,7 +9,7 @@ window.dlnaView = new Vue({
                 update: true,
             },
             dlnaInfo: {
-                CurrentDMR : '',
+                CurrentDMR : 'no DMR',
                 CurrentTransportState : '',
             },
         },
@@ -47,14 +47,11 @@ hammertimeDlna.on("panleft panright swipeleft swiperight", function (ev) {
 
 var ws_link = dlnalink();
 
-// function CheckLink() {
-    // if (ws_link.readyState == 3)
-        // ws_link = dlnalink();
-// }
+
 setInterval("ws_link.check()", 1200);
-// setInterval("CheckLink()", 1200);
+
 function dlnalink() {
-    var ws = new WebSocket("ws://" + window.location.host + "/dlna/link");
+    var ws = new WebSocket("ws://" + window.location.host + "/link");
     ws.onmessage = function (e) {
         var data = JSON.parse(e.data);
         console.log(data);

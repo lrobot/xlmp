@@ -1,4 +1,6 @@
 "use strict";
+var lastplaytime = 0;  //in seconds
+var text = "";  //temp output text
 var icon = {
     "folder": "oi-folder",
     "mp4": "oi-video",
@@ -21,6 +23,7 @@ window.commonView = new Vue({
                 fixBarShow: true,
                 videoBtnText: 'origin',
             },
+            wp_src: '',
             history: [],
             filelist: [],
         },
@@ -47,6 +50,7 @@ window.commonView = new Vue({
                 if (window.document.location.pathname == "/dlna")
                     get("/dlna/load/" + obj);
                 else
+                    // this.wp_src = obj;
                     window.location.href = "/wp/play/" + obj;
             },
             remove: function (obj) {
@@ -67,6 +71,7 @@ window.commonView = new Vue({
                     if (window.document.location.pathname == "/dlna")
                         get("/dlna/load/" + obj);
                     else
+                        // this.wp_src = obj;
                         window.location.href = "/wp/play/" + obj;
                     break;
                 case "video":
@@ -77,6 +82,47 @@ window.commonView = new Vue({
                 }
             },
         },
+        updated: function () {
+            this.$nextTick(function () {
+                
+                })
+        },
+    });
+
+window.alertBox = new Vue({
+        delimiters: ['${', '}'],
+        el: "#v-alert",
+        data() {
+            return {
+                dismissCountDown: 0,
+                content: '',
+                title: '',
+                class_style: 'success'
+            }
+        },
+        methods: {
+            countDownChanged(dismissCountDown) {
+                // console.log(dismissCountDown);
+                this.dismissCountDown = dismissCountDown
+            },
+            show(type, content) {
+                var title_map = {
+                    "info": "Info",
+                    "danger": "Error!",
+                    "success": "Success!",
+                    "warning": "dealing...",
+                };
+                this.class_style = type;
+                this.title = title_map[type];
+                this.content = content;
+                if (type === "warning")
+                    this.dismissCountDown = 999;
+                else if (type === 'danger')
+                    this.dismissCountDown = 9;
+                else
+                    this.dismissCountDown = 5;
+            }
+        }
     });
 
 var hammertimeModal = new Hammer(document.getElementById("ModalTouch"));
@@ -95,7 +141,6 @@ hammertimeModal.on("swiperight", function (ev) {
 // press.requireFailure(new Hammer.Tap());
 // hammertimeModal.add(press);
 hammertimeModal.on("press", function (ev) {
-    // out("press n");
     console.log(ev)
     var target = ev.target.tagName == 'TD' ? ev.target : ev.target.parentNode;
     if (target.hasAttribute("data-target"))
@@ -103,7 +148,6 @@ hammertimeModal.on("press", function (ev) {
     console.log(target.getAttribute('data-target'));
 });
 hammertimeModal.on("tap", function (ev) {
-    // out("tap");
     console.log(ev)
     var target = ev.target.tagName == 'TD' ? ev.target : ev.target.parentNode;
     if (target.hasAttribute("data-type"))
@@ -139,7 +183,12 @@ function showSidebar() {
  */
 function get(url) {
     console.log('get');
-    $.get(url, out);
+    $.get(url, out2);
+    // $.get(url, out);
+}
+
+function out2(text){
+   window.alertBox.show("success", text);
 }
 
 /**

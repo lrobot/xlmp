@@ -297,7 +297,8 @@ def check_dmr_exist(func):
     def no_dmr(self, *args, **kwargs):
         """check if DMR exist"""
         if not TRACKER.dmr:
-            self.finish('Error: No DMR.')
+            # self.finish('Error: No DMR.')
+            self.finish({'error': 'No DMR.'})
             return None
         return func(self, *args, **kwargs)
     return no_dmr
@@ -467,7 +468,6 @@ class DlnaHandler(tornado.web.RequestHandler):
     @check_dmr_exist
     def get(self, *args, **kwargs):
         opt = kwargs.get('opt')
-        self.write('opt: %s ' % opt)
         if opt in ('play', 'pause', 'stop'):
             method = getattr(TRACKER.dmr, opt)
             ret = method()
@@ -475,9 +475,11 @@ class DlnaHandler(tornado.web.RequestHandler):
             ret = TRACKER.dmr.seek(kwargs.get('progress'))
         else:
             return
-        if ret:
-            self.finish('Done.')
-        else:
+        # if ret:
+            # self.finish('Done.')
+        # else:
+        self.write('opt: %s ' % opt)
+        if not ret:
             self.finish('Error: Failed!')
 
 
@@ -627,7 +629,7 @@ HANDLERS = [
     (r'/hist/(?P<opt>\w*)/?(?P<src>.*)', HistoryHandler),
     (r'/sys/(?P<opt>\w*)', SystemCommandHandler),
     (r'/test', TestHandler),  # test
-    (r'/dlna/link', DlnaWebSocketHandler),
+    (r'/link', DlnaWebSocketHandler),
     (r'/dlna/info', DlnaInfoHandler),
     (r'/dlna/setdmr/(?P<dmr>.*)', SetDmrHandler),
     (r'/dlna/searchdmr', SearchDmrHandler),
