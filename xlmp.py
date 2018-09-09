@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import sys
 import logging
+import asyncio
 from threading import Thread, Event
 from urllib.parse import quote, unquote
 from time import sleep, time
@@ -32,11 +33,11 @@ class DMRTracker(Thread):
         self._flag.set()
         self._running = Event()
         self._running.set()
-        self.state = {}  # DMR device state
+        self.state = {'CurrentDMR': 'no DMR'}  # DMR device state
         self.dmr = None  # DMR device object
         self.all_devices = []  # DMR device list
         self._failure = 0
-        self._load = None
+        # self._load = None
         logging.info('DMR Tracker thread initialized.')
 
     def discover_dmr(self):
@@ -99,7 +100,7 @@ class DMRTracker(Thread):
                     logging.warning('Losing DMR count: %d', self._failure)
                     if self._failure >= 3:
                         logging.info('No DMR currently.')
-                        self.state = {}
+                        self.state = {'CurrentDMR': 'no DMR'}
                         self.dmr = None
                 sleep(0.8)
             else:
@@ -144,7 +145,8 @@ class DMRTracker(Thread):
             sleep(0.5)
             time0 = time()
             logging.info('checking duration to make sure loaded...')
-            while self.dmr.position_info().get('TrackDuration') == '00:00:00':
+            # while self.dmr.position_info().get('TrackDuration') == '00:00:00':
+            while self._get_position_info() == '00:00:00':
                 sleep(0.5)
                 logging.info('Waiting for duration to be recognized correctly, url=%s', url)
                 if (time() - time0) > 15:
@@ -154,6 +156,184 @@ class DMRTracker(Thread):
         except Exception as exc:
             logging.warning('DLNA load exception: %s', exc, exc_info=True)
             return False
+        return True
+
+class DMRTracker_coroutine(Thread):
+    """DLNA Digital Media Renderer tracker coroutine thread"""
+    executor = ThreadPoolExecutor(99)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._flag = Event()
+        self._flag.set()
+        self._running = Event()
+        self._running.set()
+        self.state = {'CurrentDMR': 'no DMR'}  # DMR device state
+        self.dmr = None  # DMR device object
+        self.all_devices = []  # DMR device list
+        # self._load = None
+        self._loop = asyncio.new_event_loop()
+        
+        logging.info('DMR Tracker thread initialized.')
+
+    def discover_dmr(self):
+        """Discover DMRs from local network"""
+        logging.debug('Starting DMR search...')
+        if self.dmr:
+            logging.info('Current DMR: %s', self.dmr)
+        self.all_devices = discover(name='', ip='', timeout=3,
+                                    st=URN_AVTransport_Fmt, ssdp_version=1)
+        if self.all_devices:
+            self.dmr = self.all_devices[0]
+            logging.info('Found DMR device: %s', self.dmr)
+
+    def set_dmr(self, str_dmr):
+        """set one of the DMRs as current DMR"""
+        for i in self.all_devices:
+            if str(i) == str_dmr:
+                self.dmr = i
+                return True
+        return False
+
+    def _get_transport_state(self):
+        """get transport state through DLNA"""
+        info = self.dmr.info()
+        if info:
+            self.state['CurrentTransportState'] = info.get('CurrentTransportState')
+            return info.get('CurrentTransportState')
+        logging.info('get info failed')
+        return None
+
+    def _get_position_info(self):
+        """get DLNA play position info"""
+        position_info = self.dmr.position_info()
+        if not position_info:
+            return None
+        for key in ('RelTime', 'TrackDuration'):
+            self.state[key] = position_info[key]
+        if self.state.get('CurrentTransportState') == 'PLAYING':
+            if position_info['TrackURI']:
+                self.state['TrackURI'] = unquote(
+                    re.sub('http://.*/video/', '', position_info['TrackURI']))
+                save_history(self.state['TrackURI'],
+                             time_to_second(self.state['RelTime']),
+                             time_to_second(self.state['TrackDuration']))
+            else:
+                logging.info('no Track uri')
+        return position_info.get('TrackDuration')
+
+    def async_run(self, func, *args, **kwargs):
+        """run block func in coroutine loop in thread"""
+        async def job():
+            return func(*args, **kwargs)
+        future = asyncio.run_coroutine_threadsafe(job(), self._loop)
+        # future.add_done_callback(callback)
+        return future.result()  # block
+
+    @asyncio.coroutine
+    def main_loop(self):
+        failure = 0
+        while True:
+            if self.dmr:
+                self.state['CurrentDMR'] = str(self.dmr)
+                self.state['DMRs'] = [str(i) for i in self.all_devices]
+                if self._get_transport_state():
+                    sleep(0.1)
+                    yield
+                    if self._get_position_info():
+                        sleep(0.1)
+                        if failure > 0:
+                            logging.info('reset failure count from %d to 0', failure)
+                            failure = 0
+                else:
+                    failure += 1
+                    logging.warning('Losing DMR count: %d', failure)
+                    if failure >= 3:
+                        logging.info('No DMR currently.')
+                        self.state = {'CurrentDMR': 'no DMR'}
+                        self.dmr = None
+                yield from asyncio.sleep(0.7)
+                sleep(0.1)
+            else:
+                logging.debug('searching DMR')
+                self.discover_dmr()
+                yield from asyncio.sleep(2.5)
+
+    def run(self):
+        asyncio.set_event_loop(self._loop)
+        task = self._loop.create_task(self.main_loop())
+        self._loop.run_until_complete(task)
+
+    def load(self, url):
+        """Load video through DLNA from URL """
+        logging.info('start loading')
+        self._url = url
+        self._loadfinish = False
+        asyncio.run_coroutine_threadsafe(self.load_coroutine(url), self._loop)
+        logging.info('coroutine loaded')
+
+    @asyncio.coroutine
+    def load_coroutine(self, url):
+        failure = 0
+        while failure < 3:
+            sleep(0.4)
+            if url != self._url or self._loadfinish:
+                return
+            if self.loadonce(url):
+                logging.info('Loaded url: %s successed', unquote(url))
+                src = unquote(re.sub('http://.*/video/', '', url))
+                position = hist_load(src)
+                if position:
+                    self.dmr.seek(second_to_time(position))
+                    logging.info('Loaded position: %s', second_to_time(position))
+                logging.info('Load Successed.')
+                self.state['CurrentTransportState'] = 'Load Successed.'
+                if url == self._url:
+                    self._loadfinish = True
+                return
+            else:
+                failure += 1
+                logging.info('load failure count: %s', failure)
+
+    def loadonce(self, url):
+        """load video through DLNA from url for once"""
+        if not self.dmr:
+            return False
+        while self._get_transport_state() not in ('STOPPED', 'NO_MEDIA_PRESENT'):
+            logging.info('send stop')
+            self.dmr.stop()
+            logging.info('Waiting for DMR stopped...')
+            sleep(1)
+        if self.dmr.set_current_media(url):
+            logging.info('Loaded %s', unquote(url))
+        else:
+            logging.warning('Load url failed: %s', unquote(url))
+            return False
+        time0 = time()
+        try:
+            while self._get_transport_state() not in ('PLAYING', 'TRANSITIONING'):
+                self.dmr.play()
+                logging.info('send play')
+                logging.info('Waiting for DMR playing...')
+                sleep(0.3)
+                if (time() - time0) > 10:
+                    logging.info('waiting for DMR playing timeout')
+                    return False
+            sleep(0.5)
+            time0 = time()
+            logging.info('checking duration to make sure loaded...')
+            # while self.dmr.position_info().get('TrackDuration') == '00:00:00':
+            while self._get_position_info() == '00:00:00':
+                sleep(0.5)
+                logging.info('Waiting for duration to be recognized correctly, url=%s', unquote(url))
+                if (time() - time0) > 15:
+                    logging.info('Load duration timeout')
+                    return False
+            logging.info(self.state)
+        except Exception as exc:
+            logging.warning('DLNA load exception: %s', exc, exc_info=True)
+            return False
+            
         return True
 
 
@@ -297,7 +477,6 @@ def check_dmr_exist(func):
     def no_dmr(self, *args, **kwargs):
         """check if DMR exist"""
         if not TRACKER.dmr:
-            # self.finish('Error: No DMR.')
             self.finish({'error': 'No DMR.'})
             return None
         return func(self, *args, **kwargs)
@@ -325,16 +504,16 @@ class IndexHandler(tornado.web.RequestHandler):
         pass
 
     def get(self, *args, **kwargs):
-        self.render('base.html')
+        self.render('index.html')
 
 
 class DlnaPlayerHandler(tornado.web.RequestHandler):
-    """DLNA player page"""
+    """DLNA player page, gonna be canceled"""
     def data_received(self, chunk):
         pass
 
     def get(self, *args, **kwargs):
-        self.render('dlna.html')
+        self.render('index.html')
 
 
 class WebPlayerHandler(tornado.web.RequestHandler):
@@ -410,7 +589,6 @@ class SaveHandler(tornado.web.RequestHandler):
     def data_received(self, chunk):
         pass
 
-    # @tornado.gen.coroutine
     @tornado.concurrent.run_on_executor
     def post(self, *args, **kwargs):
         position = self.get_argument('position', 0)
@@ -430,14 +608,14 @@ class DlnaLoadHandler(tornado.web.RequestHandler):
         if srv_host.startswith('127.0.0.1'):
             self.finish('should not use 127.0.0.1 as host to load throuh DLNA')
             return
-        logging.info(self.request.headers)
         if not os.path.exists('%s/%s' % (VIDEO_PATH, src)):
             logging.warning('File not found: %s', src)
             self.finish('Error: File not found.')
             return
         logging.info('start loading...tracker state:%s', TRACKER.state.get('CurrentTransportState'))
         url = 'http://%s/video/%s' % (srv_host, quote(src))
-        LOADER.load(url)
+        # LOADER.load(url)
+        TRACKER.load(url)
         self.finish('loading %s' % src)
 
 
@@ -455,7 +633,8 @@ class DlnaNextHandler(tornado.web.RequestHandler):
         logging.info('next file recognized: %s', next_file)
         if next_file:
             url = 'http://%s/video/%s' % (self.request.headers['Host'], quote(next_file))
-            LOADER.load(url)
+            # LOADER.load(url)
+            TRACKER.load(url)
         else:
             self.finish({'warning': "Can't get next file"})
 
@@ -473,21 +652,18 @@ class DlnaHandler(tornado.web.RequestHandler):
             ret = method()
         elif opt == 'seek':
             ret = TRACKER.dmr.seek(kwargs.get('progress'))
+        elif opt == 'playtoggle':
+            pass
+            if TRACKER.state.get('CurrentTransportState') == 'PLAYING':
+                ret = TRACKER.dmr.pause()
+            else:
+                ret = TRACKER.dmr.play()
         else:
             return
         if ret:
             self.finish({'success': 'opt: %s ' % opt})
         if not ret:
             self.finish({'error': 'Failed!'})
-
-
-class DlnaInfoHandler(tornado.web.RequestHandler):
-    """old version of DLNA info retrieve web interface replaced by web socket"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        self.finish(TRACKER.state)
 
 
 class DlnaVolumeControlHandler(tornado.web.RequestHandler):
@@ -559,12 +735,20 @@ class SearchDmrHandler(tornado.web.RequestHandler):
 
 
 class TestHandler(tornado.web.RequestHandler):
+    executor = ThreadPoolExecutor(99)
     """test only"""
     def data_received(self, chunk):
         pass
 
+    def test(self):
+        sleep(1)
+        return 'test sleep 1'
+
+    @tornado.concurrent.run_on_executor
     def get(self, *args, **kwargs):
-        self.write('test')
+        x = TRACKER.async_run(self.test)
+        logging.info(x)
+        self.write(x)
 
 
 class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
@@ -578,13 +762,14 @@ class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
     def open(self, *args, **kwargs):
         logging.info('ws connected: %s', self.request.remote_ip)
         self.users.add(self)
+        self.write_message(TRACKER.state)
 
     def on_message(self, message):
         pass
 
     def on_pong(self, data=None):
         if self.last_message != TRACKER.state:
-            logging.info(TRACKER.state)
+            logging.debug(TRACKER.state)
             for ws_user in self.users:
                 ws_user.write_message(TRACKER.state)
             self.last_message = TRACKER.state.copy()
@@ -603,7 +788,6 @@ HANDLERS = [
     (r'/sys/(?P<opt>\w*)', SystemCommandHandler),
     (r'/test', TestHandler),  # test
     (r'/link', DlnaWebSocketHandler),
-    (r'/dlna/info', DlnaInfoHandler),
     (r'/dlna/setdmr/(?P<dmr>.*)', SetDmrHandler),
     (r'/dlna/searchdmr', SearchDmrHandler),
     (r'/dlna/vol/(?P<opt>\w*)', DlnaVolumeControlHandler),
@@ -630,8 +814,9 @@ logging.basicConfig(level=logging.INFO,
 APP = tornado.web.Application(HANDLERS, **SETTINGS)
 
 # initialize dlna threader
-TRACKER = DMRTracker()
-LOADER = DLNALoader()
+# TRACKER = DMRTracker()
+TRACKER = DMRTracker_coroutine()
+# LOADER = DLNALoader()
 
 if __name__ == '__main__':
     # initialize DataBase
@@ -640,7 +825,7 @@ if __name__ == '__main__':
                     POSITION float not null,
                     DURATION float, LATEST_DATE datetime not null);''')
     TRACKER.start()
-    LOADER.start()
+    # LOADER.start()
     # if sys.platform == 'win32':
         # os.system('start http://127.0.0.1:8888/')
     APP.listen(8888, xheaders=True)
