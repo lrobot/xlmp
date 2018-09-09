@@ -12,11 +12,12 @@ window.commonView = new Vue({
         delimiters: ['${', '}'],
         el: '#v-common',
         data: {
+            lastplaytime: 0,
             icon: icon,
+            vmodel: '',
             swipeState: 0, // modal touch state
             mode: '',
             uiState: {
-                // dlnaOn: false, // true if dlna dmr exist
                 modalShow: false, // true if the modal is show
                 historyShow: true, // ture if modal is history, false if modal content is file list
                 fixBarShow: true,
@@ -50,6 +51,9 @@ window.commonView = new Vue({
             },
         },
         methods: {
+            test: function (obj) {
+                console.log("test " + obj);
+            },
             dlnaToogle: function () {
                 if (this.mode !== 'DLNA')
                     this.mode = 'DLNA';
@@ -67,9 +71,6 @@ window.commonView = new Vue({
                         $("video").get(0).style.height = $("video").get(0).videoHeight + "px";
                     }
                 }
-            },
-            test: function (obj) {
-                console.log("test " + obj);
             },
             showModal: function () {
                 this.uiState.modalShow = true;
@@ -116,16 +117,15 @@ window.commonView = new Vue({
                     this.showFs("/fs/ls/" + obj + "/");
                     break;
                 case "mp4":
-                    // if (window.document.location.pathname == "/dlna")
                     if (this.dlnaMode)
                         get("/dlna/load/" + obj);
-                    else
+                    else {
                         // this.wp_src = obj;
                         window.location.href = "/wp/play/" + obj;
                         // this.mode = "WebPlayer";
+                    }
                     break;
                 case "video":
-                    // if (window.document.location.pathname == "/dlna")
                     if (this.dlnaMode)
                         get("/dlna/load/" + obj);
                     break;
@@ -145,12 +145,53 @@ window.commonView = new Vue({
                 this.positionBar.update = false;
             },
             get: function (url) {
-                $.get(url, out2);
+                $.get(url, out);
             },
             rate: function (x) {
                 out(x + "X");
-                $("video").get(0).playbackRate = x;
+                this.$refs.video.playbackRate = x;
             },
+            videosave: function () {
+                this.lastplaytime = new Date().getTime(); //to detect if video is playing
+                if (this.$refs.video.readyState == 4 && Math.floor(Math.random() * 99) > 70) { //randomly save play position
+                    $.ajax({
+                        url: "/wp/save/" + window.commonView.wp_src,
+                        data: {
+                            position: this.$refs.video.currentTime,
+                            duration: this.$refs.video.duration
+                        },
+                        timeout: 999,
+                        type: "POST",
+                        error: function (xhr) {
+                            out("save: " + xhr.statusText);
+                        }
+                    });
+                }
+            },
+            videoload: function () {
+                this.$refs.video.currentTime = Math.max(window.commonView.position - 0.5, 0);
+                text = "<small>Play from</small><br>";
+            },
+            videoseek: function () { //show position when changed
+                out(text + secondToTime(this.$refs.video.currentTime) + '/' + secondToTime(this.$refs.video.duration));
+                text = "";
+            },
+            videoerror: function() {
+                out("error");
+            },
+            videoprogress: function() { //show buffered when hanged
+                var str = "";
+                if (new Date().getTime() - this.lastplaytime > 1000) {
+                    for (var i = 0, t = this.$refs.video.buffered.length; i < t; i++) {
+                        if (this.$refs.video.currentTime >= this.$refs.video.buffered.start(i) && this.$refs.video.currentTime <= this.$refs.video.buffered.end(i)) {
+                            str = secondToTime(this.$refs.video.buffered.start(i)) + "-" + secondToTime(this.$refs.video.buffered.end(i)) + "<br>";
+                            break;
+                        }
+                    }
+                    out(str + "<small>buffering...</small>");
+                }
+            },
+            
         },
         updated: function () {
             this.$nextTick(function () {
@@ -159,6 +200,7 @@ window.commonView = new Vue({
             })
         },
     });
+
 
 window.alertBox = new Vue({
         delimiters: ['${', '}'],
@@ -190,7 +232,7 @@ window.alertBox = new Vue({
                 else if (type === 'danger')
                     this.dismissCountDown = 9;
                 else
-                    this.dismissCountDown = 5;
+                    this.dismissCountDown = 3;
             }
         }
     });
@@ -218,7 +260,6 @@ function showSidebar() {
 
 //window.commonView.showModal();  // show modal at start
 
-
 /**
  * Ajax get and out result
  *
@@ -227,8 +268,7 @@ function showSidebar() {
  */
 function get(url) {
     console.log('get');
-    $.get(url, out2);
-    // $.get(url, out);
+    $.get(url, out);
 }
 
 function out2(text) {
@@ -373,20 +413,8 @@ function modalTouch() {
     });
 }
 
-/**
- * Set play rate
- *
- * @method rate
- * @param {Number} x
- */
-function rate(x) {
-    out(x + "X");
-    $("video").get(0).playbackRate = x;
-}
-
 function touchWebPlayer() {
     var hammertimeVideo = new Hammer(document);
-
     hammertimeVideo.on("panleft panright swipeleft swiperight", function (ev) {
         var deltaTime = ev.deltaX / 4;
         if (ev.type.indexOf("swipe") != -1)
@@ -395,44 +423,5 @@ function touchWebPlayer() {
             out(secondToTime($("video").get(0).currentTime + deltaTime));
         console.log(ev);
         console.log(ev.type);
-    });
-}
-
-function videoEvnets() {
-    $("video").on("error", function () {
-        out("error");
-    }).on("loadeddata", function () { //auto load position
-        this.currentTime = Math.max(window.commonView.position - 0.5, 0);
-        text = "<small>Play from</small><br>";
-    }).on("seeking", function () { //show position when changed
-        out(text + secondToTime(this.currentTime) + '/' + secondToTime(this.duration));
-        text = "";
-    }).on("timeupdate", function () { //auto save play position
-        lastplaytime = new Date().getTime(); //to detect if video is playing
-        if (this.readyState == 4 && Math.floor(Math.random() * 99) > 80) { //randomly save play position
-            $.ajax({
-                url: "/wp/save/" + window.commonView.wp_src,
-                data: {
-                    position: this.currentTime,
-                    duration: this.duration
-                },
-                timeout: 999,
-                type: "POST",
-                error: function (xhr) {
-                    out("save: " + xhr.statusText);
-                }
-            });
-        }
-    }).on("progress", function () { //show buffered
-        var str = "";
-        if (new Date().getTime() - lastplaytime > 1000) {
-            for (i = 0, t = this.buffered.length; i < t; i++) {
-                if (this.currentTime >= this.buffered.start(i) && this.currentTime <= this.buffered.end(i)) {
-                    str = secondToTime(this.buffered.start(i)) + "-" + secondToTime(this.buffered.end(i)) + "<br>";
-                    break;
-                }
-            }
-            out(str + "<small>buffering...</small>");
-        }
     });
 }

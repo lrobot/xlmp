@@ -33,9 +33,18 @@
   <!-- <div id="v-output">test</div> -->
   <!-- output box end-->
     <div class="container">
-      
+      <!--  -->
       <div id="v-common">
-        <video v-if="wp_src!==''" :key="wp_src" :src="'/video/' + wp_src" poster controls preload="meta">
+        <video v-if="wp_src!==''"
+               ref="video"
+               @timeupdate="videosave"
+               @loadeddata="videoload"
+               @seeking="videoseek"
+               @error="videoerror"
+               @progress="videoprogress"
+               :key="wp_src"
+               :src="'/video/' + wp_src"
+               poster controls preload="meta">
           No video support!
         </video>
         <b-btn-toolbar v-show="uiState.fixBarShow" class="fixed-top" style="opacity: 0.8;">
