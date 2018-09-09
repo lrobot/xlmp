@@ -22,7 +22,7 @@ COPY deploy /usr/local/bin
 
 # git clone
 # RUN git clone -b latest https://github.com/XenosLu/xlmp.git /xlmp
-COPY . /xlmp
+COPY .. /xlmp
 
 EXPOSE 80
 
