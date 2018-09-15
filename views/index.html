@@ -16,48 +16,48 @@
     <title>Light Media Player</title>
   </head>
   <body>
-  <!-- alert box -->
-  <div id="v-alert" class="fixed-top">
-    <b-container>
-      <b-alert :show="dismissCountDown"
-               :variant="class_style"
-               @dismissed="dismissCountDown=0"
-               @dismiss-count-down="countDownChanged"
-               dismissible>
-         <strong>${ title }</strong> ${ content }
-      </b-alert>
-  </b-container>
-  </div>
-  <!-- alert box end -->
-  <!-- output box -->
-  <!-- <div id="v-output">test</div> -->
-  <!-- output box end-->
-    <div class="container">
-      <!--  -->
-      <div id="v-common">
-        <video v-if="wp_src!==''"
+    <div id="v-common">
+      <!-- output box -->
+      <transition @enter="outFadeIn"
+                  @leave="outFadeOut">
+        <div v-if="output.show" :key="output.text" ref="output" class="output position-fixed z-index-1051">
+          <small class="d-block">${ output.smallText }</small>
+          ${ output.text }
+        </div>
+      </transition>
+      <!-- output box end -->
+      <div class="container">
+        <video v-if="wpMode"
                ref="video"
                @timeupdate="videosave"
-               @loadeddata="videoload"
                @seeking="videoseek"
                @error="videoerror"
+               @loadedmetadata  ="videoAdapt"
+               @loadeddata="videoload"
                @progress="videoprogress"
-               :key="wp_src"
-               :src="'/video/' + wp_src"
+               :key="video.src"
+               :src="'/video/' + video.src"
                poster controls preload="meta">
           No video support!
         </video>
-        <b-btn-toolbar v-show="uiState.fixBarShow" class="fixed-top" style="opacity: 0.8;">
+        <b-btn-toolbar v-show="fixBar.show" class="fixed-top opacity-08">
           <b-container>
             <b-btn-group>
+              <b-btn v-show="false" @click="test" variant="outline-dark">
+                test
+              </b-btn>
               <b-btn variant="outline-dark" title="browser" @click="showModal">
                 <i class="oi oi-list"></i>
               </b-btn>
-              <b-btn variant="outline-success"
+              <b-btn v-show="!wpMode"
+                     variant="outline-success"
                      title="switch DLNA mode"
                      :pressed="dlnaMode"
                      @click="dlnaToogle">
                 DLNA <i v-show="dlnaOn" class="oi oi-monitor"></i>
+              </b-btn>
+              <b-btn variant="outline-warning" v-show="wpMode" @click="dlnaToogle">
+                  Close
               </b-btn>
               <b-dropdown variant="outline-dark" right text="Maintain">
                 <b-dropdown-item @click="get('/sys/update')">update</b-dropdown-item>
@@ -90,8 +90,7 @@
                 <b-dropdown-item @click="rate(2)">2X</b-dropdown-item>
                 <b-dropdown-item @click="rate(2.5)">2.5X</b-dropdown-item>
                 <b-dropdown-divider></b-dropdown-divider>
-                <!-- <b-dropdown-item id="videosize">${ uiState.videoBtnText }</b-dropdown-item> -->
-                <b-dropdown-item @click="videoToggle">${ uiState.videoBtnText }</b-dropdown-item>
+                <b-dropdown-item @click="videoSizeToggle">${ video.sizeBtnText }</b-dropdown-item>
               </b-dropdown>
             </b-btn-group>
             <!-- wp menu end -->
@@ -108,17 +107,19 @@
             <!-- dlna dmr menu end -->
           </b-container>
         </b-btn-toolbar>
-        
+
         <!-- Modal Component -->
-        <b-modal modal-class="['card']"
-                 v-model="uiState.modalShow"
+        <!-- <b-modal modal-class="['card', 'col-sm-11']" -->
+        <!-- <b-modal modal-class="col-sm-11" -->
+        <b-modal v-model="uiState.modalShow"
                  size="lg"
                  centered hide-footer hide-header>
-          <div class="card-header" style="background-color: #C3E6CB;">
-            <b-btn @click="showHistory" :pressed="uiState.historyShow" variant="outline-dark">
-              <i class="oi oi-book"></i>History
+          <div class="card-header bg-D9EDF7">
+            <b-btn @click="showHistory" :pressed="uiState.historyShow" variant="outline-secondary">
+              <!-- <i class="oi oi-book"></i>History -->
+              <i class="oi oi-clock"></i>History
             </b-btn>
-            <b-btn @click="showFs('/fs/ls/')" :pressed="!uiState.historyShow" variant="outline-dark">
+            <b-btn @click="showFs('/fs/ls/')" :pressed="!uiState.historyShow" variant="outline-secondary">
               <i class="oi oi-home"></i>Home dir
             </b-btn>
             <b-btn @click="uiState.modalShow=false" class="close">&times;</b-btn>
@@ -126,15 +127,15 @@
           <div id="ModalTouch" class="table-responsive-sm text-center">
             <table v-show="uiState.historyShow" class="table table-striped table-sm">
               <tr v-for="item in history">
-                <td :class="[swipeState > 0 ? '' : 'd-none']"
-                    class="icon d-sm-block bg-info"
-                    @click="open(item.path, 'folder')">
-                  <i class="text-white oi oi-folder"></i>
-                  <br>
-                  <small class="text-white">go Dir</small>
+                <td class="icon d-sm-table-cell d-none">
+                  <b-btn variant="info" @click="open(item.path, 'folder')">
+                    <i class="oi oi-folder"></i>
+                    <br>
+                    <small>go Dir</small>
+                  </b-btn>
                 </td>
                 <td class="iconOnly"><i class="oi oi-video"></i></td>
-                <td @click="play(item.filename)" :data-target="item.path">
+                <td @click="play(item.filename)" :data-target="item.path" class="break-all">
                   <span :class="item.exist ? 'mp4' : 'other'">${ item.filename }</span>
                   <br>
                   <small class="text-muted">
@@ -143,28 +144,29 @@
                     ${ secondToTime(item.duration) }
                   </small>
                 </td>
-                <td :class="[swipeState < 0 ? '' : 'd-none']"
-                    class="icon d-sm-block bg-danger"
-                    @click="remove(item.filename)">
-                  <i class="text-white oi oi-trash"></i>
-                  <br>
-                  <small class="text-white">Remove</small>
+                <td :class="[swipeState < 0 ? '' : 'd-none']" class="icon d-sm-table-cell">
+                  <b-btn variant="danger" @click="remove(item.filename)">
+                    <i class="oi oi-trash"></i>
+                    <br>
+                    <small>Remove</small>
+                  </b-btn>
                 </td>
               </tr>
             </table>
             <table v-show="!uiState.historyShow" class="table table-striped table-sm">
               <tr v-for="item in filelist">
                 <td class="iconOnly"><i :class="icon[item.type]" class="oi"></i></td>
-                <td :class="item.type" :data-type="item.type" :data-path="item.path">
+                <td :class="item.type" :data-type="item.type" :data-path="item.path" class="break-all">
                   ${ item.filename }
                   <br>
                   <small class="text-muted">${ item.size }</small>
                 </td>
-                <td :class="[swipeState < 0 ? '' : 'd-none']"
-                    class="icon d-sm-block bg-danger"
-                    @click="move(item.path)">
-                  <i class="text-white oi oi-trash"></i><br>
-                  <small class="text-white">Move</small>
+                <td :class="[swipeState < 0 ? '' : 'd-none']" class="icon d-sm-table-cell">
+                  <b-btn variant="danger" @click="move(item.path)">
+                    <i class="oi oi-trash"></i>
+                    <br>
+                    <small>Move</small>
+                  </b-btn>
                 </td>
               </tr>
             </table>
@@ -181,7 +183,7 @@
             <div class="my-1 py-3"></div>
             <b-card bg-variant="light"
                     :title="dlnaInfo.TrackURI ? decodeURI(dlnaInfo.TrackURI) : ''"
-                    class="my-5 title"
+                    class="title break-all my-5"
                     id="DlnaTouch">
             </b-card>
           </div>
@@ -193,10 +195,10 @@
                 ${ dlnaInfo.RelTime} / ${ dlnaInfo.TrackDuration }
               </h6>
               <input class="position-bar my-3"
-                     v-model.number="positionBar.val"
+                     v-model.number="positionBarVal"
                      type="range"
-                     :min="positionBar.min"
-                     :max="positionBar.max"
+                     min="0"
+                     :max="positionBarMax"
                      @change="positionSeek"
                      @input="positionShow">
               <b-btn-toolbar justify class="my-3 text-center">
@@ -229,8 +231,6 @@
           </div>
         </div>
       </div>
-      {% block main %}
-      {% end %}
     </div>
     {% block footer %}
     <footer class="text-center">
@@ -238,7 +238,9 @@
     </footer>
     {% end %}
   </body>
-  <script src="/static/js/jquery-3.2.1.min.js"></script>
+  <script src="/static/js/velocity.min.js"></script>
+  <script src="/static/js/axios.min.js"></script>
+  <!-- <script src="/static/js/jquery-3.2.1.min.js"></script> -->
   <script src="/static/js/hammer.min.js"></script>
   <script src="{{ static_url('js/common.js') }}"></script>
   <script src="{{ static_url('js/main.js') }}"></script>
