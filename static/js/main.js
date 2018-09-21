@@ -97,7 +97,7 @@ window.appView = new Vue({
         delimiters: ['${', '}'],
         el: '#v-main',
         data: {
-            devMode: true, // develop mode
+            devMode: false, // develop mode
             editMode: false,
             video: {
                 lastplaytime: 0,
