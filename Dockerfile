@@ -5,7 +5,6 @@ LABEL maintainer="xenos <xenos.lu@gmail.com>"
             # runit \
 # supervisor 3.3.4 not support python3
 RUN apk add --no-cache \
-            git \
             nginx \
             s6 &&\
     pip3 install tornado==5.1 &&\
@@ -21,9 +20,6 @@ COPY docker/deploy /usr/local/bin
 # RUN chmod +x /usr/local/bin/deploy
 
 COPY . /xlmp
-
-# git clone
-# RUN git clone -b latest https://github.com/XenosLu/xlmp.git /xlmp
 
 EXPOSE 80
 
