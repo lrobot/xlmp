@@ -23,7 +23,7 @@ COPY docker/deploy /usr/local/bin
 COPY . /xlmp
 
 # git clone
-RUN git clone -b latest https://github.com/XenosLu/xlmp.git /xlmp
+# RUN git clone -b latest https://github.com/XenosLu/xlmp.git /xlmp
 
 EXPOSE 80
 
