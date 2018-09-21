@@ -6,17 +6,28 @@ var icon = {
     "other": "oi-file"
 };
 
-//window.appView.showModal();  // show modal at start
+function vueTouch(el, type, binding) {
+    this.el = el;
+    this.type = type;
+    this.binding = binding;
+    var hammertime = new Hammer(this.el);
+    hammertime.on(this.type, this.binding.value);
+};
 
-/**
- * Ajax get and out result
- *
- * @method get
- * @param {String} url
- */
-// function get(url) {
-    // // $.get(url, out);
-// }
+Vue.directive("tap", {
+    bind: function (el, binding) {
+        new vueTouch(el, "tap", binding);
+    }
+});
+
+Vue.directive("press", {
+    bind: function (el, binding) {
+        new vueTouch(el, "press", binding);
+    }
+});
+
+
+//window.appView.showModal();  // show modal at start
 
 /**
  * Render history list box from ajax
@@ -25,19 +36,6 @@ var icon = {
  * @param {String} str
  */
 function getHistory(str) {
-    // $.ajax({
-        // url: encodeURI(str),
-        // dataType: "json",
-        // timeout: 1999,
-        // type: "get",
-        // success: function (data) {
-            // window.appView.uiState.historyShow = true;
-            // window.appView.history = data.history;
-        // },
-        // error: function (xhr) {
-            // window.appView.out(xhr.statusText);
-        // }
-    // });
     axios.get(encodeURI(str))
     .then(function (response) {
         window.appView.uiState.historyShow = true;
@@ -46,17 +44,7 @@ function getHistory(str) {
     .catch(function (error) {
         window.appView.out(error.response.statusText);
     });
-}
-
-/**
- * Made an output box to show some text notification
- *
- * @method out
- * @param {String} str
- */
-// function out(str) {
-    // window.appView.out(str);
-// }
+};
 
 function dlnaTouch() {
     var hammertimeDlna = new Hammer(document.getElementById("DlnaTouch"));
@@ -67,7 +55,6 @@ function dlnaTouch() {
         window.appView.out(secondToTime(newtime));
         if (ev.type.indexOf("swipe") != -1)
             window.appView.get("/dlna/seek/" + secondToTime(newtime));
-
         // console.log(ev);
         // console.log(ev.type);
     });
@@ -78,9 +65,6 @@ function dlnalink() {
     ws.onmessage = function (e) {
         var data = JSON.parse(e.data);
         console.log(data);
-        // if (window.appView.positionBarCanUpdate && data.hasOwnProperty('RelTime')) {
-            // window.appView.positionBarVal = timeToSecond(data.RelTime);
-        // }
         window.appView.dlnaInfo = data;
     }
     ws.onclose = function () {
@@ -94,38 +78,6 @@ function dlnalink() {
             ws_link = dlnalink();
     };
     return ws;
-}
-
-function modalTouch() {
-    var hammertimeModal = new Hammer(document.getElementById("ModalTouch"));
-
-    hammertimeModal.on("swipeleft", function (ev) {
-        window.appView.swipeState -= 1;
-        if (window.appView.swipeState < -1)
-            window.appView.swipeState = -1;
-    });
-    hammertimeModal.on("swiperight", function (ev) {
-        window.appView.swipeState += 1;
-        if (window.appView.swipeState > 0)
-            window.appView.swipeState = 0;
-    });
-    // var press = new Hammer.Press({time: 500});
-    // press.requireFailure(new Hammer.Tap());
-    // hammertimeModal.add(press);
-    hammertimeModal.on("press", function (ev) {
-        // console.log(ev)
-        var target = ev.target.tagName == 'TD' ? ev.target : ev.target.parentNode;
-        if (target.hasAttribute("data-target"))
-            window.appView.open(target.getAttribute('data-target'), 'folder');
-        console.log(target.getAttribute('data-target'));
-    });
-    hammertimeModal.on("tap", function (ev) {
-        // console.log(ev)
-        var target = ev.target.tagName == 'TD' ? ev.target : ev.target.parentNode;
-        if (target.hasAttribute("data-type"))
-            window.appView.open(target.getAttribute('data-path'), target.getAttribute('data-type'));
-        console.log(target.getAttribute('data-target'));
-    });
 }
 
 function touchWebPlayer() {
@@ -143,15 +95,16 @@ function touchWebPlayer() {
 
 window.appView = new Vue({
         delimiters: ['${', '}'],
-        el: '#v-common',
+        el: '#v-main',
         data: {
+            devMode: true, // develop mode
+            editMode: false,
             video: {
                 lastplaytime: 0,
                 sizeBtnText: 'origin',
                 src: '', // web player source
             },
             icon: icon,
-            swipeState: 0, // modal touch state
             mode: '', // mode of player, switch between empty/DLNA/WebPlayer
             uiState: {
                 modalShow: false, // true if the modal is show
@@ -175,7 +128,8 @@ window.appView = new Vue({
                 smallText: '',
                 show: false,
                 timerId: null,
-            }
+            },
+            isIos: null,
         },
         watch: {
             'dlnaInfo.RelTime': function () {
@@ -209,9 +163,25 @@ window.appView = new Vue({
             }
         },
         methods: {
-            test: function (obj) {
+            test: function (obj, obj2) {
+                console.log(obj);
+                // console.log(obj2);
                 console.log("test " + obj);
-                this.out('test');
+                this.out('test' + obj);
+            },
+            volUp: function (obj) {
+                this.get('/dlna/vol/up');
+            },
+            volDown: function (obj) {
+                this.get('/dlna/vol/down');
+            },
+            pressOpen: function (obj) {
+                var target = obj.target.tagName == 'TD' ? obj.target : obj.target.parentNode;
+                this.open(target.getAttribute('data-target'), 'folder');
+            },
+            tapOpen: function (obj) {
+                var target = obj.target.tagName == 'TD' ? obj.target : obj.target.parentNode;
+                this.open(target.getAttribute('data-path'), target.getAttribute('data-type'));
             },
             showFixBar: function () {
                 this.fixBar.show = true;
@@ -238,22 +208,12 @@ window.appView = new Vue({
             },
             outFadeIn: function (el, done) {
                 Velocity(el, 'stop');
-                Velocity(el, {translateX: '-50%', translateY: '-50%'}, {duration: 0});
-                Velocity(el, {opacity: 0.8}, {duration: 250});
+                // Velocity(el, {translateX: '-50%', translateY: '-50%'}, {duration: 0});
+                Velocity(el, {opacity: 0.8}, {duration: 200});
             },
             outFadeOut: function (el, done) {
                 Velocity(el, 'stop');
                 Velocity(el, {opacity: 0}, {duration: 600});
-            },
-            out_old: function (str) {
-                if (str !== "") {
-                    this.output.text = str;
-                    var el = this.$refs.output;
-                    Velocity(el, 'stop');
-                Velocity(el, {translateX: '-50%', translateY: '-50%'}, {duration: 0});
-                    Velocity(el, {opacity: 0.8}, {duration: 250});
-                    Velocity(el, {opacity: 0}, {delay: 1800, duration: 625});
-                }
             },
             dlnaToogle: function () {
                 this.mode = this.mode !== '' ? '' : 'DLNA';
@@ -287,8 +247,8 @@ window.appView = new Vue({
                 }
             },
             showModal: function () {
-                this.uiState.modalShow = true;
-                if (this.uiState.historyShow)
+                this.uiState.modalShow = !this.uiState.modalShow;
+                if (this.uiState.modalShow && this.uiState.historyShow)
                     this.showHistory();
             },
             showHistory: function () {
@@ -301,40 +261,18 @@ window.appView = new Vue({
                         window.appView.filelist = response.data.filesystem;
                 })
                 .catch(function (error) {
-                    // console.log(error);
-                    // console.log(error.response);
                     window.appView.out(error.response.statusText);
                 });
-                
-                // $.ajax({
-                    // url: encodeURI(path),
-                    // dataType: "json",
-                    // timeout: 1999,
-                    // type: "get",
-                    // success: function (data) {
-                        // window.appView.uiState.historyShow = false;
-                        // window.appView.filelist = data.filesystem;
-                    // },
-                    // error: function (xhr) {
-                        // window.appView.out(xhr.statusText);
-                    // }
-                // });
             },
             clearHistory: function () { // clear history button
                 if (confirm("Clear all history?"))
                     getHistory("/hist/clear");
             },
-            play: function (obj) {
-                this.open(obj, 'mp4');
-            },
             remove: function (obj) {
-                if (confirm("Clear history of " + obj + "?"))
-                    getHistory("/hist/rm/" + obj.replace(/\?/g, "%3F")); //?to%3F #to%23
+                getHistory("/hist/rm/" + obj.replace(/\?/g, "%3F")); //?to%3F #to%23
             },
             move: function (obj) {
-                if (confirm("Move " + obj + " to .old?")) {
-                    this.showFs("/fs/move/" + obj);
-                }
+                this.showFs("/fs/move/" + obj);
             },
             open: function (obj, type) {
                 switch (type) {
@@ -342,16 +280,9 @@ window.appView = new Vue({
                     this.showFs("/fs/ls/" + obj + "/");
                     break;
                 case "mp4":
-                    // if (this.dlnaMode)
-                        // this.get("/dlna/load/" + obj);
-                    // else {
-                        // // window.location.href = "/wp/play/" + obj;
-                        // this.playInWeb(obj);
-                    // }
                     if (!this.dlnaMode) {
                         this.playInWeb(obj);
                     }
-                    // break;
                 case "video":
                     if (this.dlnaMode)
                         this.get("/dlna/load/" + obj);
@@ -405,18 +336,6 @@ window.appView = new Vue({
                     }).catch(function (error) {
                         window.appView.out(error.response.statusText);
                     });
-                    // $.ajax({
-                        // url: "/wp/save/" + this.video.src,
-                        // data: {
-                            // position: this.$refs.video.currentTime,
-                            // duration: this.$refs.video.duration
-                        // },
-                        // timeout: 999,
-                        // type: "POST",
-                        // error: function (xhr) {
-                            // this.out("save: " + xhr.statusText);
-                        // }
-                    // });
                 }
             },
             videoload: function () {
@@ -452,6 +371,7 @@ window.appView = new Vue({
                     dlnaTouch();
                 } else if (this.wpMode) {
                     window.document.title = this.video.src + " - Light Media Player";
+                    // if (this.isIos)
                     touchWebPlayer();
                 } else
                     window.document.title = "Light Media Player";
@@ -461,15 +381,30 @@ window.appView = new Vue({
             if (typeof(localStorage.mode) !== "undefined")
                 this.mode = localStorage.mode;
             window.onresize = this.videoAdapt;
-            var isiOS = !!navigator.userAgent.match(/\(i[^;]+;( U;)? CPU.+Mac OS X/);
-            if (!isiOS) {
+            this.isIos = !!navigator.userAgent.match(/\(i[^;]+;( U;)? CPU.+Mac OS X/);
+            if (!this.isIos) {
                 this.fixBar.show = false;
                 document.onmousemove = this.showFixBar;
             }
-            axios.defaults.timeout =  1999;
+            axios.defaults.timeout = 1999;
+            // prevent double click for IOS
+            document.addEventListener('touchstart', function (event) {
+                if (event.touches.length > 1) {
+                    event.preventDefault();
+                }
+            })
+            var lastTouchEnd = 0;
+            document.addEventListener('touchend', function (event) {
+                var now = (new Date()).getTime();
+                if (now - lastTouchEnd <= 300) {
+                    event.preventDefault();
+                }
+                lastTouchEnd = now;
+            }, false)
         },
     });
 
 var ws_link = dlnalink();
 setInterval("ws_link.check()", 1200);
-modalTouch();
+
+
