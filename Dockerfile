@@ -20,6 +20,8 @@ COPY docker/xlmp.conf /etc/nginx/conf.d/
 COPY docker/deploy /usr/local/bin
 # RUN chmod +x /usr/local/bin/deploy
 
+COPY . /xlmp
+
 # git clone
 RUN git clone -b latest https://github.com/XenosLu/xlmp.git /xlmp
 
