@@ -6,59 +6,40 @@ var icon = {
     "other": "oi-file"
 };
 
-function vueTouch(el, type, binding) {
-    this.el = el;
-    this.type = type;
-    this.binding = binding;
-    var hammertime = new Hammer(this.el);
-    hammertime.on(this.type, this.binding.value);
-};
-
-Vue.directive("tap", {
-    bind: function (el, binding) {
-        new vueTouch(el, "tap", binding);
-    }
-});
-
-Vue.directive("press", {
-    bind: function (el, binding) {
-        new vueTouch(el, "press", binding);
-    }
-});
-
-
-//window.appView.showModal();  // show modal at start
-
-/**
- * Render history list box from ajax
- *
- * @method history
- * @param {String} str
- */
-function getHistory(str) {
-    axios.get(encodeURI(str))
-    .then(function (response) {
-        window.appView.uiState.historyShow = true;
-        window.appView.history = response.data.history;
-    })
-    .catch(function (error) {
+function jsonRPC(method, params, callback) {
+    axios.post('/api', {
+        jsonrpc: '2.0',
+        method: method,
+        params: params,
+        id: 1
+    }).then(function (response) {
+        console.log(response.data.hasOwnProperty('result'));
+        callback(response.data);
+    }).catch(function (error) {
         window.appView.out(error.response.statusText);
     });
-};
-
-function dlnaTouch() {
-    var hammertimeDlna = new Hammer(document.getElementById("DlnaTouch"));
-    hammertimeDlna.on("panleft panright swipeleft swiperight", function (ev) {
-        var newtime = window.appView.positionBarVal + ev.deltaX / 4;
-        newtime = Math.max(newtime, 0);
-        newtime = Math.min(newtime, window.appView.positionBarMax);
-        window.appView.out(secondToTime(newtime));
-        if (ev.type.indexOf("swipe") != -1)
-            window.appView.get("/dlna/seek/" + secondToTime(newtime));
-        // console.log(ev);
-        // console.log(ev.type);
-    });
 }
+
+function test() {
+    jsonRPC('test', null, function (data) {
+        console.log(data.result);
+    })
+}
+
+// var server = {};
+// var rpc_cmds = ["test"];
+
+// rpc_cmds.forEach(function (cmd) {
+    // server[cmd] = function () {
+        // window.alertBox.show("warning", "");
+        // var kwargs = {
+            // method: cmd,
+            // args: arguments,
+        // };
+        // console.log("RPC command: " + JSON.stringify(kwargs));
+        // ws_link.send(JSON.stringify(kwargs));
+    // };
+// });
 
 function dlnalink() {
     var ws = new WebSocket("ws://" + window.location.host + "/link");
@@ -98,46 +79,61 @@ window.appView = new Vue({
         el: '#v-main',
         data: {
             devMode: false, // develop mode
-            editMode: false,
-            video: {
-                lastplaytime: 0,
-                sizeBtnText: 'origin',
-                src: '', // web player source
-            },
-            icon: icon,
             mode: '', // mode of player, switch between empty/DLNA/WebPlayer
-            uiState: {
-                modalShow: false, // true if the modal is show
-                historyShow: true, // ture if modal is history, false if modal content is file list
-            },
+            navCollapse: false, // navbar is collapse
+            editMode: false,
+            browserShow: false,
+            historyShow: true, // ture if browser window is history, false if browser window is file list
             history: [], // updated by ajax
             filelist: [], // updated by ajax
-            positionBarCanUpdate: true, //dlna position bar
-            positionBarVal: 0,
             dlnaInfo: { // updated by websocket
                 CurrentDMR: 'no DMR',
                 CurrentTransportState: '',
                 TrackURI: '',
             },
+            positionBarCanUpdate: true, //dlna position bar
+            positionBarVal: 0,
             fixBar: {
                 show: true,
                 timerId: null,
             },
+            video: {
+                lastplaytime: 0,
+                sizeBtnText: 'origin',
+                src: '', // web player source
+            },
             output: {
                 text: '',
-                smallText: '',
+                smallText: '', // consider to declared
                 show: false,
                 timerId: null,
             },
             isIos: null,
+            icon: icon,
         },
         watch: {
+            browserShow: function () {
+                this.navCollapse = false;
+                if (!this.browserShow)
+                    this.editMode = false;
+            },
             'dlnaInfo.RelTime': function () {
                 console.log('reltime update');
                 if (this.positionBarCanUpdate)
                     this.positionBarVal = timeToSecond(this.dlnaInfo.RelTime);
                 console.log(this.positionBarVal);
-            }
+            },
+            mode: function () {
+                if (this.dlnaMode) {
+                    window.document.title = "DMC - Light Media Player";
+                    // dlnaTouch();
+                } else if (this.wpMode) {
+                    window.document.title = this.video.src + " - Light Media Player";
+                    // if (this.isIos)
+                    touchWebPlayer();
+                } else
+                    window.document.title = "Light Media Player";
+            },
         },
         computed: {
             dlnaOn: function () { // check if dlna dmr is exist
@@ -150,7 +146,7 @@ window.appView = new Vue({
                 return this.mode === 'WebPlayer';
             },
             positionBarMax: function () {
-                if(this.dlnaInfo.hasOwnProperty('TrackDuration'))
+                if (this.dlnaInfo.hasOwnProperty('TrackDuration'))
                     return timeToSecond(this.dlnaInfo.TrackDuration);
                 return 0;
             },
@@ -164,10 +160,10 @@ window.appView = new Vue({
         },
         methods: {
             test: function (obj, obj2) {
-                console.log(obj);
-                // console.log(obj2);
-                console.log("test " + obj);
-                this.out('test' + obj);
+                test();
+                // console.log(obj);
+                // console.log("test " + obj);
+                // this.out('test' + obj);
             },
             volUp: function (obj) {
                 this.get('/dlna/vol/up');
@@ -183,7 +179,7 @@ window.appView = new Vue({
                 var target = obj.target.tagName == 'TD' ? obj.target : obj.target.parentNode;
                 this.open(target.getAttribute('data-path'), target.getAttribute('data-type'));
             },
-            showFixBar: function () {
+            showFixBar: function () { // show fix bar and then hide
                 this.fixBar.show = true;
                 if (this.fixBar.timerId) {
                     clearTimeout(this.fixBar.timerId);
@@ -191,7 +187,7 @@ window.appView = new Vue({
                 }
                 this.fixBar.timerId = setTimeout(function () {
                         window.appView.fixBar.show = false;
-                    }, 3000);
+                    }, 3500);
             },
             out: function (str) {
                 if (str !== "") {
@@ -208,8 +204,7 @@ window.appView = new Vue({
             },
             outFadeIn: function (el, done) {
                 Velocity(el, 'stop');
-                // Velocity(el, {translateX: '-50%', translateY: '-50%'}, {duration: 0});
-                Velocity(el, {opacity: 0.8}, {duration: 200});
+                Velocity(el, {opacity: 0.8}, {duration: 180});
             },
             outFadeOut: function (el, done) {
                 Velocity(el, 'stop');
@@ -221,15 +216,16 @@ window.appView = new Vue({
             },
             videoAdapt: function () {
                 if (this.wpMode) {
+                    var wHeight = window.innerHeight;
                     this.video.sizeBtnText = "orign";
                     var video_ratio = this.$refs.video.videoWidth / this.$refs.video.videoHeight;
-                    var page_ratio = window.innerWidth / window.innerHeight;
+                    var page_ratio = window.innerWidth / wHeight;
                     if (page_ratio < video_ratio) {
                         var width = window.innerWidth + "px";
                         var height = Math.floor(window.innerWidth / video_ratio) + "px";
                     } else {
-                        var width = Math.floor(window.innerHeight * video_ratio) + "px";
-                        var height = window.innerHeight + "px";
+                        var width = Math.floor(wHeight * video_ratio) + "px";
+                        var height = wHeight + "px";
                     }
                     this.$refs.video.style.width = width;
                     this.$refs.video.style.height = height;
@@ -247,18 +243,28 @@ window.appView = new Vue({
                 }
             },
             showModal: function () {
-                this.uiState.modalShow = !this.uiState.modalShow;
-                if (this.uiState.modalShow && this.uiState.historyShow)
+                this.browserShow = !this.browserShow;
+                if (this.browserShow && this.historyShow)
                     this.showHistory();
             },
+            getHistory: function getHistory(str) {
+                axios.get(encodeURI(str))
+                .then(function (response) {
+                    window.appView.historyShow = true;
+                    window.appView.history = response.data.history;
+                })
+                .catch(function (error) {
+                    window.appView.out(error.response.statusText);
+                });
+            },
             showHistory: function () {
-                getHistory("/hist/ls");
+                this.getHistory("/hist/ls");
             },
             showFs: function (path) {
                 axios.get(encodeURI(path))
                 .then(function (response) {
-                        window.appView.uiState.historyShow = false;
-                        window.appView.filelist = response.data.filesystem;
+                    window.appView.historyShow = false;
+                    window.appView.filelist = response.data.filesystem;
                 })
                 .catch(function (error) {
                     window.appView.out(error.response.statusText);
@@ -266,10 +272,10 @@ window.appView = new Vue({
             },
             clearHistory: function () { // clear history button
                 if (confirm("Clear all history?"))
-                    getHistory("/hist/clear");
+                    this.getHistory("/hist/clear");
             },
             remove: function (obj) {
-                getHistory("/hist/rm/" + obj.replace(/\?/g, "%3F")); //?to%3F #to%23
+                this.getHistory("/hist/rm/" + obj.replace(/\?/g, "%3F")); //?to%3F #to%23
             },
             move: function (obj) {
                 this.showFs("/fs/move/" + obj);
@@ -305,7 +311,7 @@ window.appView = new Vue({
                 }
                 this.video.src = obj;
                 this.mode = "WebPlayer";
-                this.uiState.modalShow = false;
+                this.browserShow = false;
             },
             setDmr: function (dmr) {
                 this.get("/dlna/setdmr/" + dmr);
@@ -363,36 +369,43 @@ window.appView = new Vue({
                     this.out(str + " buffering...");
                 }
             },
-        },
-        updated: function () {
-            this.$nextTick(function () {
-                if (this.dlnaMode) {
-                    window.document.title = "DMC - Light Media Player";
-                    dlnaTouch();
-                } else if (this.wpMode) {
-                    window.document.title = this.video.src + " - Light Media Player";
-                    // if (this.isIos)
-                    touchWebPlayer();
-                } else
-                    window.document.title = "Light Media Player";
-            })
+            dlnaTouch: function (obj) {
+                var newtime = this.positionBarVal + obj.deltaX / 4;
+                newtime = Math.max(newtime, 0);
+                newtime = Math.min(newtime, this.positionBarMax);
+                this.out(secondToTime(newtime));
+                if (obj.type.indexOf("swipe") != -1) {
+                    this.get("/dlna/seek/" + secondToTime(newtime));
+                    console.log('swipe');
+                }
+                else
+                    console.log('pan');
+            },
+            // dlnaSwipe: function (obj) {
+                // var newtime = this.positionBarVal + obj.deltaX / 4;
+                // newtime = Math.max(newtime, 0);
+                // newtime = Math.min(newtime, this.positionBarMax);
+                // console.log('swipe');
+                // this.get("/dlna/seek/" + secondToTime(newtime));
+            // },
         },
         created: function () {
             if (typeof(localStorage.mode) !== "undefined")
                 this.mode = localStorage.mode;
             window.onresize = this.videoAdapt;
             this.isIos = !!navigator.userAgent.match(/\(i[^;]+;( U;)? CPU.+Mac OS X/);
+            this.isIos = true;
             if (!this.isIos) {
                 this.fixBar.show = false;
                 document.onmousemove = this.showFixBar;
-            }
+            };
             axios.defaults.timeout = 1999;
             // prevent double click for IOS
             document.addEventListener('touchstart', function (event) {
                 if (event.touches.length > 1) {
                     event.preventDefault();
                 }
-            })
+            });
             var lastTouchEnd = 0;
             document.addEventListener('touchend', function (event) {
                 var now = (new Date()).getTime();
@@ -400,11 +413,12 @@ window.appView = new Vue({
                     event.preventDefault();
                 }
                 lastTouchEnd = now;
-            }, false)
+            }, false);
+            this.showHistory();
         },
     });
 
+    
+
 var ws_link = dlnalink();
 setInterval("ws_link.check()", 1200);
-
-

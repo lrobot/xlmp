@@ -105,8 +105,10 @@ class DMRTracker(Thread):
                 transport_state = self._get_transport_state()
                 if transport_state:
                     sleep(0.1)
-                    if transport_state == 'STOPPED' and self.loop_playback.isSet() and not self.loadnext():
-                        self.loop_playback.clear()
+                    if transport_state == 'STOPPED' and self.loop_playback.isSet():
+                        yield from asyncio.sleep(0.5)
+                        if not self.loadnext():
+                            self.loop_playback.clear()
                     yield
                     if self._get_position_info():
                         sleep(0.1)
@@ -343,28 +345,6 @@ class IndexHandler(tornado.web.RequestHandler):
         self.render('index.html')
 
 
-class DlnaPlayerHandler(tornado.web.RequestHandler):
-    """DLNA player page, gonna be canceled"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        self.render('index.html')
-
-
-# class WebPlayerHandler(tornado.web.RequestHandler):
-    # """Video play page"""
-    # def data_received(self, chunk):
-        # pass
-
-    # def get(self, *args, **kwargs):
-        # src = kwargs.get('src')
-        # if not os.path.exists('%s/%s' % (VIDEO_PATH, src)):
-            # self.redirect('/')
-            # return
-        # self.render('player.html', src=src, position=hist_load(src))
-
-
 class HistoryHandler(tornado.web.RequestHandler):
     """Return play history list"""
     def data_received(self, chunk):
@@ -566,23 +546,6 @@ class SearchDmrHandler(tornado.web.RequestHandler):
         TRACKER.discover_dmr()
 
 
-class TestHandler(tornado.web.RequestHandler):
-    executor = ThreadPoolExecutor(99)
-    """test only"""
-    def data_received(self, chunk):
-        pass
-
-    def test(self):
-        sleep(1)
-        return 'test sleep 1'
-
-    @tornado.concurrent.run_on_executor
-    def get(self, *args, **kwargs):
-        x = TRACKER.async_run(self.test)
-        logging.info(x)
-        self.write(x)
-
-
 class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
     """DLNA info retriever use web socket"""
     users = set()
@@ -603,8 +566,6 @@ class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
         if self.last_message != TRACKER.state:
             logging.debug(TRACKER.state)
             self.write_message(TRACKER.state)
-            # for ws_user in self.users:
-                # ws_user.write_message(TRACKER.state)
             self.last_message = TRACKER.state.copy()
 
     def on_close(self):
@@ -612,14 +573,66 @@ class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
         self.users.remove(self)
 
 
+class TestHandler(tornado.web.RequestHandler):
+    executor = ThreadPoolExecutor(99)
+    """test only"""
+    def data_received(self, chunk):
+        pass
+
+    def test(self):
+        sleep(1)
+        return 'test sleep 1'
+
+    @tornado.concurrent.run_on_executor
+    def get(self, *args, **kwargs):
+        x = TRACKER.async_run(self.test)
+        logging.info(x)
+        self.write(x)
+
+
+class ApiHandler(tornado.web.RequestHandler):
+    # executor = ThreadPoolExecutor(99)
+    """api test"""
+    def data_received(self, chunk):
+        pass
+
+    # @tornado.concurrent.run_on_executor
+    def post(self, *args, **kwargs):
+        arguments = json.loads(self.request.body.decode())
+        logging.info(arguments)
+        result = JsonRpc.run(**arguments)
+        logging.info(result)
+        self.write(result)
+
+
+class JsonRpc():
+    """Json RPC class"""
+    @classmethod
+    def run(cls=None, jsonrpc="2.0", method=None, params=None, id=None):
+        """run RPC method"""
+        args = params if isinstance(params, list) else []
+        kwargs = params if isinstance(params, dict) else {}
+        logging.info('running method: %s with params: %s', method, params)
+        val = {'jsonrpc': '2.0', 'id': id}
+        try:
+            val['result'] = getattr(cls, method)(*args, **kwargs)
+        except Exception as exc:
+            logging.info(exc, exc_info=True)
+            val['error'] = {"code": -1, "message": str(exc)}
+        return val
+
+    @classmethod
+    def test(cls):
+        return 'test'
+
 HANDLERS = [
     (r'/', IndexHandler),
-    # (r'/dlna', DlnaPlayerHandler),
+    (r'/test', TestHandler),  # test
+    (r'/api', ApiHandler),
     (r'/fs/ls/(?P<path>.*)', FileSystemListHandler),
     (r'/fs/move/(?P<src>.*)', FileSystemMoveHandler),
     (r'/hist/(?P<opt>\w*)/?(?P<src>.*)', HistoryHandler),
     (r'/sys/(?P<opt>\w*)', SystemCommandHandler),
-    (r'/test', TestHandler),  # test
     (r'/link', DlnaWebSocketHandler),
     (r'/dlna/setdmr/(?P<dmr>.*)', SetDmrHandler),
     (r'/dlna/searchdmr', SearchDmrHandler),
@@ -628,7 +641,6 @@ HANDLERS = [
     (r'/dlna/load/(?P<src>.*)', DlnaLoadHandler),
     (r'/dlna/(?P<opt>\w*)/?(?P<progress>.*)', DlnaHandler),
     (r'/wp/save/(?P<src>.*)', SaveHandler),
-    # (r'/wp/play/(?P<src>.*)', WebPlayerHandler),  # no longer needed
     (r'/video/(.*)', tornado.web.StaticFileHandler, {'path': VIDEO_PATH}),
 ]
 
