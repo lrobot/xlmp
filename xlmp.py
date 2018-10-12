@@ -22,6 +22,11 @@ from lib.dlnap import URN_AVTransport_Fmt, discover  # https://github.com/ttopho
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))  # set file path as current
 
+# initialize logging
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(filename)s %(levelname)s [line:%(lineno)d] %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+
 VIDEO_PATH = 'media'  # media file path
 HISTORY_DB_FILE = '%s/.history.db' % VIDEO_PATH  # history db file
 
@@ -38,6 +43,7 @@ class DMRTracker(Thread):
         self.dmr = None  # DMR device object
         self.all_devices = []  # DMR device list
         self.url_prefix = None
+        self._url = ''
         logging.info('DMR Tracker thread initialized.')
 
     def discover_dmr(self):
@@ -79,7 +85,6 @@ class DMRTracker(Thread):
             if position_info['TrackURI']:
                 self.state['TrackURI'] = unquote(
                     re.sub('http://.*/video/', '', position_info['TrackURI']))
-                # self.url_prefix = re.sub('(http://.*/video/).*', '\\1', position_info['TrackURI'])
                 save_history(self.state['TrackURI'],
                              time_to_second(self.state['RelTime']),
                              time_to_second(self.state['TrackDuration']))
@@ -97,6 +102,7 @@ class DMRTracker(Thread):
 
     @asyncio.coroutine
     def main_loop(self):
+        """main async loop"""
         failure = 0
         while True:
             if self.dmr:
@@ -127,23 +133,34 @@ class DMRTracker(Thread):
             else:
                 logging.debug('searching DMR')
                 self.discover_dmr()
-                yield from asyncio.sleep(2.5)
+                if LinkWebSocketHandler.users:
+                    sleep_time = 1
+                else:
+                    sleep_time = 5
+                logging.info(sleep_time)
+                yield from asyncio.sleep(sleep_time)
+                # yield from asyncio.sleep(2.5)
 
     def run(self):
         asyncio.set_event_loop(self._loop)
         task = self._loop.create_task(self.main_loop())
         self._loop.run_until_complete(task)
 
-    def load(self, url):
+    def load(self, src):
         """Load video through DLNA from URL """
         logging.info('start loading')
+        if not self.url_prefix:
+            return False
+        url = '%s%s' % (self.url_prefix, quote(src))
         self._url = url
         self._load_inprogess.set()
-        asyncio.run_coroutine_threadsafe(self.load_coroutine(url), self._loop)
+        asyncio.run_coroutine_threadsafe(self._load_coroutine(url), self._loop)
         logging.info('coroutine loaded')
+        return True
 
     @asyncio.coroutine
-    def load_coroutine(self, url):
+    def _load_coroutine(self, url):
+        """load videdo in coroutine"""
         failure = 0
         while failure < 3:
             sleep(0.4)
@@ -163,20 +180,23 @@ class DMRTracker(Thread):
                 if time_to_second(self.state.get('TrackDuration')) <= 600:
                     self.loop_playback.set()
                 return
-            else:
-                failure += 1
-                logging.info('load failure count: %s', failure)
+            failure += 1
+            logging.info('load failure count: %s', failure)
 
-    def loadnext(self):
+    def loadnext(self, src=None):
         """load next video"""
-        if not self.state.get('TrackURI'):
+        # if not self.state.get('TrackURI'):
+            # return False
+        if not src:
+            src = self.state.get('TrackURI')
+        if not src:
             return False
-        next_file = get_next_file(self.state['TrackURI'])
+        next_file = get_next_file(src)
         logging.info('next file recognized: %s', next_file)
-        if next_file and self.url_prefix:
-            url = '%s%s' % (self.url_prefix, quote(next_file))
-            self.load(url)
-            return True
+        if next_file:
+            # url = '%s%s' % (self.url_prefix, quote(next_file))
+            return self.load(next_file)
+            # return True
         return False
 
     def loadonce(self, url):
@@ -206,10 +226,10 @@ class DMRTracker(Thread):
             sleep(0.5)
             time0 = time()
             logging.info('checking duration to make sure loaded...')
-            # while self.dmr.position_info().get('TrackDuration') == '00:00:00':
             while self._get_position_info() == '00:00:00':
                 sleep(0.5)
-                logging.info('Waiting for duration to be recognized correctly, url=%s', unquote(url))
+                logging.info('Waiting for duration to be recognized correctly, url=%s',
+                             unquote(url))
                 if (time() - time0) > 15:
                     logging.info('Load duration timeout')
                     return False
@@ -217,7 +237,6 @@ class DMRTracker(Thread):
         except Exception as exc:
             logging.warning('DLNA load exception: %s', exc, exc_info=True)
             return False
-            
         return True
 
 
@@ -234,33 +253,6 @@ def run_sql(sql, *args):
             logging.warning(str(exc))
             ret = ()
     return ret
-
-
-def ls_dir(path):
-    """list dir files in dict/json"""
-    if path == '/':
-        path = ''
-    parent, list_folder, list_mp4, list_video, list_other = [], [], [], [], []
-    if path:
-        path = re.sub('([^/])$', '\\1/', path)  # make sure path end with '/'
-        parent = [{'filename': '..', 'type': 'folder', 'path': '%s..' % path}]
-    dir_list = sorted(os.listdir('%s/%s' % (VIDEO_PATH, path)))
-    for filename in dir_list:
-        if filename.startswith('.'):
-            continue
-        if os.path.isdir('%s/%s%s' % (VIDEO_PATH, path, filename)):
-            list_folder.append({'filename': filename, 'type': 'folder',
-                                'path': '%s%s' % (path, filename)})
-        elif re.match('.*\\.((?i)mp)4$', filename):
-            list_mp4.append({'filename': filename, 'type': 'mp4',
-                             'path': '%s%s' % (path, filename), 'size': get_size(path, filename)})
-        elif re.match('.*\\.((?i)(mkv|avi|flv|rmvb|wmv))$', filename):
-            list_video.append({'filename': filename, 'type': 'video',
-                               'path': '%s%s' % (path, filename), 'size': get_size(path, filename)})
-        else:
-            list_other.append({'filename': filename, 'type': 'other',
-                               'path': '%s%s' % (path, filename)})
-    return {'filesystem': (parent + list_folder + list_mp4 + list_video + list_other)}
 
 
 def second_to_time(second):
@@ -281,9 +273,10 @@ def time_to_second(time_str):
     return sum([float(i)*60**n for n, i in enumerate(str(time_str).split(':')[::-1])])
 
 
-def get_size(*filename):
+def get_size(path):
     """get file size in human read format from file"""
-    size = os.path.getsize('%s/%s' % (VIDEO_PATH, ''.join(filename)))
+    # size = os.path.getsize('%s/%s' % (VIDEO_PATH, ''.join(filename)))
+    size = os.path.getsize(path)
     if size < 0:
         return 'Out of Range'
     if size < 1024:
@@ -301,39 +294,15 @@ def hist_load(name):
     return 0
 
 
-def save_history(src, position, duration):
-    """save play history to database"""
-    if float(position) < 10:
-        return
-    run_sql('''replace into history (FILENAME, POSITION, DURATION, LATEST_DATE)
-               values(? , ?, ?, DateTime('now', 'localtime'));''', src, position, duration)
-
-
 def check_dmr_exist(func):
     """Decorator: check DMR is available before do something relate to DLNA"""
-    def no_dmr(self, *args, **kwargs):
+    def wrapper(*args, **kwargs):
         """check if DMR exist"""
-        if not TRACKER.dmr:
-            self.finish({'error': 'No DMR.'})
-            return None
-        return func(self, *args, **kwargs)
-    return no_dmr
-
-
-def get_next_file(src):  # not strict enough
-    """get next related video file"""
-    logging.info(src)
-    fullname = '%s/%s' % (VIDEO_PATH, src)
-    filepath = os.path.dirname(fullname)
-    dirs = sorted([i for i in os.listdir(filepath)
-                   if not i.startswith('.') and os.path.isfile('%s/%s' % (filepath, i))])
-    if os.path.basename(fullname) in dirs:
-        next_index = dirs.index(os.path.basename(fullname)) + 1
-    else:
-        next_index = 0
-    if next_index < len(dirs):
-        return '%s/%s' % (os.path.dirname(src), dirs[next_index])
-    return None
+        if TRACKER.dmr:
+            return func(*args, **kwargs)
+        return 'No DMR.'
+    wrapper.__name__ = func.__name__
+    return wrapper
 
 
 class IndexHandler(tornado.web.RequestHandler):
@@ -345,208 +314,26 @@ class IndexHandler(tornado.web.RequestHandler):
         self.render('index.html')
 
 
-class HistoryHandler(tornado.web.RequestHandler):
-    """Return play history list"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        opt = kwargs.get('opt')
-        if opt == 'ls':
-            pass
-        elif opt == 'clear':
-            run_sql('delete from history')
-        elif opt == 'rm':
-            run_sql('delete from history where FILENAME=?', unquote(kwargs.get('src')))
-        else:
-            raise tornado.web.HTTPError(404, reason='illegal operation')
-        self.finish({'history': [{'filename': s[0], 'position': s[1], 'duration': s[2],
-                                  'latest_date': s[3], 'path': os.path.dirname(s[0]),
-                                  'exist': os.path.exists('%s/%s' % (VIDEO_PATH, s[0]))}
-                                 for s in run_sql('select * from history order by LATEST_DATE desc'
-                                                 )]})
-
-
-class FileSystemListHandler(tornado.web.RequestHandler):
-    """Get static folder list in json"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        try:
-            self.finish(ls_dir(kwargs.get('path')))
-        except Exception as exc:
-            raise tornado.web.HTTPError(404, reason=str(exc))
-
-
-class FileSystemMoveHandler(tornado.web.RequestHandler):
-    """Move file to '.old' folder"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        src = kwargs.get('src')
-        filename = '%s/%s' % (VIDEO_PATH, src)
-        dir_old = '%s/%s/.old' % (VIDEO_PATH, os.path.dirname(src))
-        if not os.path.exists(dir_old):
-            os.mkdir(dir_old)
-        try:
-            shutil.move(filename, dir_old)  # gonna do something when file is occupied
-        except Exception as exc:
-            logging.warning('move file failed: %s', exc)
-            raise tornado.web.HTTPError(404, reason=str(exc))
-        self.finish(ls_dir('%s/' % os.path.dirname(src)))
-
-
-class SaveHandler(tornado.web.RequestHandler):
-    """Save play history"""
-    executor = ThreadPoolExecutor(5)
-
-    def data_received(self, chunk):
-        pass
-
-    @tornado.concurrent.run_on_executor
-    def post(self, *args, **kwargs):
-        arguments = json.loads(self.request.body.decode())
-        # position = arguments.get('position', 0)
-        # duration = arguments.get('duration', 0)
-        # position = self.get_argument('position', 0)
-        # duration = self.get_argument('duration', 0)
-        # save_history(kwargs.get('src'), position, duration)
-        save_history(kwargs.get('src'), **arguments)
-
-
-class DlnaLoadHandler(tornado.web.RequestHandler):
-    """DLNA load file web interface"""
-    def data_received(self, chunk):
-        pass
-
-    @check_dmr_exist
-    def get(self, *args, **kwargs):
-        src = kwargs.get('src')
-        srv_host = self.request.headers['Host']
-        if srv_host.startswith('127.0.0.1'):
-            self.finish('should not use 127.0.0.1 as host to load throuh DLNA')
-            return
-        if not os.path.exists('%s/%s' % (VIDEO_PATH, src)):
-            logging.warning('File not found: %s', src)
-            self.finish('Error: File not found.')
-            return
-        logging.info('start loading...tracker state:%s', TRACKER.state.get('CurrentTransportState'))
-        TRACKER.url_prefix = 'http://%s/video/' % srv_host
-        url = 'http://%s/video/%s' % (srv_host, quote(src))
-        TRACKER.load(url)
-        self.finish('loading %s' % src)
-
-
-class DlnaNextHandler(tornado.web.RequestHandler):
-    """DLNA jump to next video file web interface"""
-    def data_received(self, chunk):
-        pass
-
-    @check_dmr_exist
-    def get(self, *args, **kwargs):
-        if not TRACKER.loadnext():
-            self.finish({'warning': "Can't get next file"})
-
-
-class DlnaHandler(tornado.web.RequestHandler):
+class DlnaPlayToggleHandler(tornado.web.RequestHandler):
     """DLNA operation web interface"""
     def data_received(self, chunk):
         pass
 
-    @check_dmr_exist
     def get(self, *args, **kwargs):
-        opt = kwargs.get('opt')
-        if opt in ('play', 'pause', 'stop'):
-            if opt == 'stop':
-                TRACKER.loop_playback.clear()
-            method = getattr(TRACKER.dmr, opt)
-            ret = method()
-        elif opt == 'seek':
-            ret = TRACKER.dmr.seek(kwargs.get('progress'))
-        elif opt == 'playtoggle':
-            if TRACKER.state.get('CurrentTransportState') == 'PLAYING':
-                ret = TRACKER.dmr.pause()
-            else:
-                ret = TRACKER.dmr.play()
-        else:
+        if not TRACKER.dmr:
+            self.finish({'error': 'No DMR.'})
             return
+        if TRACKER.state.get('CurrentTransportState') == 'PLAYING':
+            ret = TRACKER.dmr.pause()
+        else:
+            ret = TRACKER.dmr.play()
         if ret:
-            self.finish({'success': 'opt: %s ' % opt})
+            self.finish({'result': 'success'})
         if not ret:
             self.finish({'error': 'Failed!'})
 
 
-class DlnaVolumeControlHandler(tornado.web.RequestHandler):
-    """Tune volume through DLNA web interface"""
-    def data_received(self, chunk):
-        pass
-
-    @check_dmr_exist
-    def get(self, *args, **kwargs):
-        opt = kwargs.get('opt')
-        vol = int(TRACKER.dmr.get_volume())
-        if opt == 'up':
-            vol += 1
-        elif opt == 'down':
-            vol -= 1
-        if not 0 <= vol <= 100:
-            self.finish({'warning':'volume range exceeded'})
-        elif TRACKER.dmr.volume(vol):
-            self.finish(str(vol))
-        else:
-            self.finish({'error': 'failed'})
-
-
-class SystemCommandHandler(tornado.web.RequestHandler):
-    """some system maintainence command web interface"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        opt = kwargs.get('opt')
-        if opt == 'update':
-            if sys.platform == 'linux':
-                if os.system('git pull') == 0:
-                    self.finish('git pull done, waiting for restart')
-                    python = sys.executable
-                    os.execl(python, python, *sys.argv)
-                    # os._exit(1)
-                else:
-                    self.finish('execute git pull failed')
-            else:
-                self.finish('not supported')
-        elif opt == 'backup':  # backup history
-            self.finish(shutil.copyfile(HISTORY_DB_FILE, '%s.bak' % HISTORY_DB_FILE))
-        elif opt == 'restore':  # restore history
-            self.finish(shutil.copyfile('%s.bak' % HISTORY_DB_FILE, HISTORY_DB_FILE))
-        else:
-            raise tornado.web.HTTPError(403, reason='no such operation')
-
-
-class SetDmrHandler(tornado.web.RequestHandler):
-    """set dmr web interface"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        if TRACKER.set_dmr(kwargs.get('dmr')):
-            self.finish('Done.')
-        else:
-            self.finish('Error: Failed!')
-
-
-class SearchDmrHandler(tornado.web.RequestHandler):
-    """Mannually search DMR web interface"""
-    def data_received(self, chunk):
-        pass
-
-    def get(self, *args, **kwargs):
-        TRACKER.discover_dmr()
-
-
-class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
+class LinkWebSocketHandler(tornado.websocket.WebSocketHandler):
     """DLNA info retriever use web socket"""
     users = set()
     last_message = {}
@@ -560,7 +347,10 @@ class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
         self.on_pong()
 
     def on_message(self, message):
-        pass
+        logging.info('received ws message: %s', message)
+        result = JsonRpc.run(message)
+        logging.info('result: %s', result)
+        self.write_message(result)
 
     def on_pong(self, data=None):
         if self.last_message != TRACKER.state:
@@ -573,23 +363,6 @@ class DlnaWebSocketHandler(tornado.websocket.WebSocketHandler):
         self.users.remove(self)
 
 
-class TestHandler(tornado.web.RequestHandler):
-    executor = ThreadPoolExecutor(99)
-    """test only"""
-    def data_received(self, chunk):
-        pass
-
-    def test(self):
-        sleep(1)
-        return 'test sleep 1'
-
-    @tornado.concurrent.run_on_executor
-    def get(self, *args, **kwargs):
-        x = TRACKER.async_run(self.test)
-        logging.info(x)
-        self.write(x)
-
-
 class ApiHandler(tornado.web.RequestHandler):
     # executor = ThreadPoolExecutor(99)
     """api test"""
@@ -598,49 +371,284 @@ class ApiHandler(tornado.web.RequestHandler):
 
     # @tornado.concurrent.run_on_executor
     def post(self, *args, **kwargs):
-        arguments = json.loads(self.request.body.decode())
-        logging.info(arguments)
-        result = JsonRpc.run(**arguments)
-        logging.info(result)
-        self.write(result)
+        json_data = self.request.body.decode()
+        result = JsonRpc.run(json_data)
+        logging.info('result: %s', result)
+        self.finish(result)
 
 
 class JsonRpc():
-    """Json RPC class"""
+    """Json RPC class follow JSON-RPC 2.0 Specification
+    Usage: JsonRpc.run(json_data)
+    @JsonRpc.method
+    def foo():
+        pass
+    """
+    methods = {}
     @classmethod
-    def run(cls=None, jsonrpc="2.0", method=None, params=None, id=None):
-        """run RPC method"""
-        args = params if isinstance(params, list) else []
-        kwargs = params if isinstance(params, dict) else {}
-        logging.info('running method: %s with params: %s', method, params)
-        val = {'jsonrpc': '2.0', 'id': id}
+    def run(cls, json_data):
+        """test method"""
+        val = {'jsonrpc': '2.0', 'id': None}
         try:
-            val['result'] = getattr(cls, method)(*args, **kwargs)
-        except Exception as exc:
-            logging.info(exc, exc_info=True)
-            val['error'] = {"code": -1, "message": str(exc)}
+            obj = json.loads(json_data)
+        except json.decoder.JSONDecodeError:
+            logging.debug(json_data)
+            val['error'] = {'code': -32700, 'message': 'Parse error'}
+            return val
+        if isinstance(obj, dict):
+            return cls._run(obj)
+        if isinstance(obj, list):
+            return [cls._run(item) for item in obj]
+        val['error'] = {'code': -32600, 'message': 'Invalid Request'}
         return val
 
     @classmethod
-    def test(cls):
-        return 'test'
+    def _run(cls, obj):
+        """run RPC method"""
+        val = {'jsonrpc': '2.0'}
+        logging.info(obj)
+        val['id'] = obj.get('id')
+        method = obj.get('method')
+        params = obj.get('params')
+        args = params if isinstance(params, list) else []
+        kwargs = params if isinstance(params, dict) else {}
+        if not method in cls.methods:
+            val['error'] = {'code': -32601, 'message': 'Method not found'}
+            return val
+        try:
+            result = cls.methods[method](*args, **kwargs)
+            if val['id'] is None:
+                return ''
+            if result is True:
+                result = 'Success'
+            elif result is False:
+                result = 'Failed'
+            val['result'] = result
+        except TypeError as exc:
+            logging.warning(exc, exc_info=True)
+            val['error'] = {'code': -32602, 'message': 'Invalid params'}
+        except Exception as exc:
+            logging.warning(exc, exc_info=True)
+            val['error'] = {'code': -1, 'message': str(exc)}
+        return val
+
+    @classmethod
+    def method(cls, func):
+        """Decorator: register a function as json rpc method"""
+        if func.__name__.startswith('rpc.'):
+            logging.warning('Method name "%s" begin with rpc. is reserved for system extension',
+                            func.__name__)
+        elif func.__name__ in cls.methods:
+            logging.warning('Method name "%s" has been occupied in JsonRpc', func.__name__)
+        else:
+            cls.methods[func.__name__] = func
+            logging.debug('JsonRpc method registered: %s', func.__name__)
+        return func
+
+
+@JsonRpc.method
+@check_dmr_exist
+def dlna_vol(opt):
+    """dlna volume adjuster"""
+    vol = int(TRACKER.dmr.get_volume())
+    if opt == 'up':
+        vol += 1
+    elif opt == 'down':
+        vol -= 1
+    if not 0 <= vol <= 100:
+        return 'Volume range exceeded'
+    if TRACKER.dmr.volume(vol):
+        return str(vol)
+    return False
+
+
+@JsonRpc.method
+@check_dmr_exist
+def dlna_next(src=None, host=None):
+    """dlna load next media"""
+    if host:
+        TRACKER.url_prefix = 'http://%s/video/' % host
+    return TRACKER.loadnext(src=src)
+
+
+@JsonRpc.method
+@check_dmr_exist
+def dlna(opt):
+    """dlna commands"""
+    if opt in ('play', 'pause', 'stop'):
+        if opt == 'stop':
+            TRACKER.loop_playback.clear()
+        method = getattr(TRACKER.dmr, opt)
+        return method()
+    return 'option not exist'
+
+
+@JsonRpc.method
+@check_dmr_exist
+def dlna_seek(position):
+    """dlna seek to new position"""
+    return TRACKER.dmr.seek(position)
+
+
+@JsonRpc.method
+def dlna_search():
+    """search dlna DMR"""
+    return TRACKER.discover_dmr()
+
+
+@JsonRpc.method
+def dlna_set_dmr(dmr):
+    """dlna set a DMR as current"""
+    return TRACKER.set_dmr(dmr)
+
+
+@JsonRpc.method
+def save_history(src, position, duration):
+    """save play history to database"""
+    if float(position) < 10:
+        return
+    run_sql('''replace into history (FILENAME, POSITION, DURATION, LATEST_DATE)
+               values(? , ?, ?, DateTime('now', 'localtime'));''', src, position, duration)
+
+
+@JsonRpc.method
+def list_history():
+    """get play history"""
+    return [
+        {'filename': os.path.basename(s[0]), 'fullpath': s[0], 'position': s[1], 'duration': s[2],
+         'latest_date': s[3], 'path': os.path.dirname(s[0]),
+         'exist': os.path.exists('%s/%s' % (VIDEO_PATH, s[0]))}
+        for s in run_sql('select * from history order by LATEST_DATE desc')]
+
+
+# @JsonRpc.method
+def clear_history():
+    """clear all history, no longer needed"""
+    run_sql('delete from history')
+    return list_history()
+
+
+@JsonRpc.method
+def remove_history(src):
+    """remove an item from history"""
+    logging.info(src)
+    run_sql('delete from history where FILENAME=?', unquote(src))
+    return list_history()
+
+
+@JsonRpc.method
+@check_dmr_exist
+def dlna_load(src, host):
+    """load a video through DMR"""
+    if host.startswith('127.0.0.1'):
+        return 'should not use 127.0.0.1 as host to load throuh DLNA'
+    if not os.path.exists('%s/%s' % (VIDEO_PATH, src)):
+        logging.warning('File not found: %s', src)
+        return 'Error: File not found.'
+    logging.info('start loading...tracker state:%s', TRACKER.state.get('CurrentTransportState'))
+    TRACKER.url_prefix = 'http://%s/video/' % host
+    TRACKER.load(src)
+    return 'loading %s' % src
+
+
+@JsonRpc.method
+def file_move(src):
+    """move file to .old folder and hide it"""
+    filename = '%s/%s' % (VIDEO_PATH, src)
+    dir_old = '%s/%s/.old' % (VIDEO_PATH, os.path.dirname(src))
+    if not os.path.exists(dir_old):
+        os.mkdir(dir_old)
+    try:
+        shutil.move(filename, dir_old)  # gonna do something when file is occupied
+    except Exception as exc:
+        logging.warning('move file failed: %s', exc)
+        return False
+    return file_list('%s/' % os.path.dirname(src))
+
+
+@JsonRpc.method
+def self_update():
+    """develop method: self update"""
+    def restart():
+        sleep(1)
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
+    executor = ThreadPoolExecutor(1)
+    result = os.system('git pull')
+    executor.submit(restart)
+    if result == 0:
+        return 'git pull done, waiting for restart'
+    return 'git pull failed, restart anyway'
+
+
+@JsonRpc.method
+def db_backup():
+    """backup database file"""
+    return shutil.copyfile(HISTORY_DB_FILE, '%s.bak' % HISTORY_DB_FILE)
+
+
+@JsonRpc.method
+def db_restore():
+    """restore from database backup file"""
+    return shutil.copyfile('%s.bak' % HISTORY_DB_FILE, HISTORY_DB_FILE)
+
+
+@JsonRpc.method
+def test():
+    """test function"""
+    return 'test message'
+
+
+def get_next_file(src):  # not strict enough
+    """get next related video file"""
+    logging.info(src)
+    fullname = '%s/%s' % (VIDEO_PATH, src)
+    filepath = os.path.dirname(fullname)
+    files = sorted([i for i in os.listdir(filepath)
+                    if not i.startswith('.') and os.path.isfile('%s/%s' % (filepath, i))])
+    if os.path.basename(src) in files:
+        next_index = files.index(os.path.basename(src)) + 1
+    else:
+        next_index = 0
+    if next_index < len(files):
+        return '%s/%s' % (os.path.dirname(src), files[next_index])
+    return None
+
+
+@JsonRpc.method
+def file_list(path=''):
+    """list dir files in dict/json"""
+    if path == '/':
+        path = ''
+    parent, list_folder, list_mp4, list_video, list_other = [], [], [], [], []
+    if path:
+        parent = [{'filename': '..', 'type': 'folder', 'path': os.path.dirname(path)}]
+        logging.info(path)
+        path = re.sub('([^/])$', '\\1/', path)  # make sure path end with '/'
+    dir_list = sorted(os.listdir('%s/%s' % (VIDEO_PATH, path)))
+    for filename in dir_list:
+        if filename.startswith('.'):
+            continue
+        rel_path = '%s%s' % (path, filename)
+        fullpath = '%s/%s' % (VIDEO_PATH, rel_path)
+        if os.path.isdir(fullpath):
+            list_folder.append({'filename': filename, 'type': 'folder', 'path': rel_path})
+        elif re.match('.*\\.((?i)mp)4$', filename):
+            list_mp4.append({'filename': filename, 'type': 'mp4',
+                             'path': rel_path, 'size': get_size(fullpath)})
+        elif re.match('.*\\.((?i)(mkv|avi|flv|rmvb|wmv))$', filename):
+            list_video.append({'filename': filename, 'type': 'video',
+                               'path': rel_path, 'size': get_size(fullpath)})
+        else:
+            list_other.append({'filename': filename, 'type': 'other', 'path': rel_path})
+    return parent + list_folder + list_mp4 + list_video + list_other
+
 
 HANDLERS = [
     (r'/', IndexHandler),
-    (r'/test', TestHandler),  # test
     (r'/api', ApiHandler),
-    (r'/fs/ls/(?P<path>.*)', FileSystemListHandler),
-    (r'/fs/move/(?P<src>.*)', FileSystemMoveHandler),
-    (r'/hist/(?P<opt>\w*)/?(?P<src>.*)', HistoryHandler),
-    (r'/sys/(?P<opt>\w*)', SystemCommandHandler),
-    (r'/link', DlnaWebSocketHandler),
-    (r'/dlna/setdmr/(?P<dmr>.*)', SetDmrHandler),
-    (r'/dlna/searchdmr', SearchDmrHandler),
-    (r'/dlna/vol/(?P<opt>\w*)', DlnaVolumeControlHandler),
-    (r'/dlna/next', DlnaNextHandler),
-    (r'/dlna/load/(?P<src>.*)', DlnaLoadHandler),
-    (r'/dlna/(?P<opt>\w*)/?(?P<progress>.*)', DlnaHandler),
-    (r'/wp/save/(?P<src>.*)', SaveHandler),
+    (r'/link', LinkWebSocketHandler),
+    (r'/playtoggle', DlnaPlayToggleHandler),
     (r'/video/(.*)', tornado.web.StaticFileHandler, {'path': VIDEO_PATH}),
 ]
 
@@ -652,10 +660,6 @@ SETTINGS = {
     'websocket_ping_interval': 0.2,
 }
 
-# initialize logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s %(filename)s %(levelname)s [line:%(lineno)d] %(message)s',
-                    datefmt='%Y-%m-%d %H:%M:%S')
 APP = tornado.web.Application(HANDLERS, **SETTINGS)
 
 # initialize dlna threader

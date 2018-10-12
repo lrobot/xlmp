@@ -1,65 +1,10 @@
-"use strict";
+'use strict';
 var icon = {
-    "folder": "oi-folder",
-    "mp4": "oi-video",
-    "video": "oi-video",
-    "other": "oi-file"
+    folder: "oi-folder",
+    mp4: "oi-video",
+    video: "oi-video",
+    other: "oi-file"
 };
-
-function jsonRPC(method, params, callback) {
-    axios.post('/api', {
-        jsonrpc: '2.0',
-        method: method,
-        params: params,
-        id: 1
-    }).then(function (response) {
-        console.log(response.data.hasOwnProperty('result'));
-        callback(response.data);
-    }).catch(function (error) {
-        window.appView.out(error.response.statusText);
-    });
-}
-
-function test() {
-    jsonRPC('test', null, function (data) {
-        console.log(data.result);
-    })
-}
-
-// var server = {};
-// var rpc_cmds = ["test"];
-
-// rpc_cmds.forEach(function (cmd) {
-    // server[cmd] = function () {
-        // window.alertBox.show("warning", "");
-        // var kwargs = {
-            // method: cmd,
-            // args: arguments,
-        // };
-        // console.log("RPC command: " + JSON.stringify(kwargs));
-        // ws_link.send(JSON.stringify(kwargs));
-    // };
-// });
-
-function dlnalink() {
-    var ws = new WebSocket("ws://" + window.location.host + "/link");
-    ws.onmessage = function (e) {
-        var data = JSON.parse(e.data);
-        console.log(data);
-        window.appView.dlnaInfo = data;
-    }
-    ws.onclose = function () {
-        window.appView.dlnaInfo.CurrentTransportState = 'disconnected';
-    };
-    ws.onerror = function () {
-        console.log('error');
-    };
-    ws.check = function () {
-        if (this.readyState == 3)
-            ws_link = dlnalink();
-    };
-    return ws;
-}
 
 function touchWebPlayer() {
     var hammertimeVideo = new Hammer(document);
@@ -72,6 +17,9 @@ function touchWebPlayer() {
         console.log(ev);
         console.log(ev.type);
     });
+    hammertimeVideo.get('swipe').set({
+        velocity: 0.01
+    });
 }
 
 window.appView = new Vue({
@@ -79,6 +27,9 @@ window.appView = new Vue({
         el: '#v-main',
         data: {
             devMode: false, // develop mode
+            allSelected: false,
+            removeCheckboxList: [],
+            moveCheckboxList: [],
             mode: '', // mode of player, switch between empty/DLNA/WebPlayer
             navCollapse: false, // navbar is collapse
             editMode: false,
@@ -88,7 +39,6 @@ window.appView = new Vue({
             filelist: [], // updated by ajax
             dlnaInfo: { // updated by websocket
                 CurrentDMR: 'no DMR',
-                CurrentTransportState: '',
                 TrackURI: '',
             },
             positionBarCanUpdate: true, //dlna position bar
@@ -112,6 +62,13 @@ window.appView = new Vue({
             icon: icon,
         },
         watch: {
+            // editMode: function () {
+                // this.allSelected = false;
+                // this.removeCheckboxList = [];
+            // },
+            historyShow: function () {
+                this.allSelected = false;
+            },
             browserShow: function () {
                 this.navCollapse = false;
                 if (!this.browserShow)
@@ -126,7 +83,6 @@ window.appView = new Vue({
             mode: function () {
                 if (this.dlnaMode) {
                     window.document.title = "DMC - Light Media Player";
-                    // dlnaTouch();
                 } else if (this.wpMode) {
                     window.document.title = this.video.src + " - Light Media Player";
                     // if (this.isIos)
@@ -137,7 +93,7 @@ window.appView = new Vue({
         },
         computed: {
             dlnaOn: function () { // check if dlna dmr is exist
-                return this.dlnaInfo.CurrentDMR !== 'no DMR';
+                return typeof(this.dlnaInfo.CurrentDMR) !== "undefined" && this.dlnaInfo.CurrentDMR !== 'no DMR';
             },
             dlnaMode: function () { // check if in dlna mode
                 return this.mode === 'DLNA';
@@ -152,7 +108,7 @@ window.appView = new Vue({
             },
             wpPosition: function () {
                 for (var item in this.history) {
-                    if (this.history[item].filename == window.appView.video.src)
+                    if (this.history[item].filename === window.appView.video.src)
                         return this.history[item].position;
                 }
                 return 0;
@@ -160,23 +116,50 @@ window.appView = new Vue({
         },
         methods: {
             test: function (obj, obj2) {
-                test();
-                // console.log(obj);
                 // console.log("test " + obj);
                 // this.out('test' + obj);
             },
+            removeSelected: function () {
+                if (confirm('Remove ' + this.removeCheckboxList + '?')) {
+                    this.removeCheckboxList.forEach(this.remove);
+                    this.removeCheckboxList = [];
+                    this.editMode = false;
+                }
+            },
+            moveSelected: function () {
+                if (confirm('Move ' + this.moveCheckboxList + ' to .old?')) {
+                    this.moveCheckboxList.forEach(this.move);
+                    this.moveCheckboxList = [];
+                    this.editMode = false;
+                }
+            },
+            historySelectAll: function () {
+                if (this.allSelected) {
+                    if (this.historyShow)
+                        this.history.forEach((item) => {
+                            this.removeCheckboxList.push(item.fullpath);
+                        });
+                    else
+                        this.filelist.forEach((item) => {
+                            this.moveCheckboxList.push(item.path);
+                        });
+                } else {
+                    this.removeCheckboxList = [];
+                    this.moveCheckboxList = [];
+                }
+            },
             volUp: function (obj) {
-                this.get('/dlna/vol/up');
+                server.dlna_vol(['up']);
             },
             volDown: function (obj) {
-                this.get('/dlna/vol/down');
+                server.dlna_vol(['down']);
             },
             pressOpen: function (obj) {
-                var target = obj.target.tagName == 'TD' ? obj.target : obj.target.parentNode;
+                var target = obj.target.tagName === 'TD' ? obj.target : obj.target.parentNode;
                 this.open(target.getAttribute('data-target'), 'folder');
             },
             tapOpen: function (obj) {
-                var target = obj.target.tagName == 'TD' ? obj.target : obj.target.parentNode;
+                var target = obj.target.tagName === 'TD' ? obj.target : obj.target.parentNode;
                 this.open(target.getAttribute('data-path'), target.getAttribute('data-type'));
             },
             showFixBar: function () { // show fix bar and then hide
@@ -185,26 +168,29 @@ window.appView = new Vue({
                     clearTimeout(this.fixBar.timerId);
                     this.fixBar.timerId = null;
                 }
-                this.fixBar.timerId = setTimeout(function () {
-                        window.appView.fixBar.show = false;
+                this.fixBar.timerId = setTimeout(() => {
+                        this.fixBar.show = false;
                     }, 3500);
             },
             out: function (str) {
-                if (str !== "") {
+                if (str !== '') {
                     if (this.output.timerId) {
                         clearTimeout(this.output.timerId);
                         this.output.timerId = null;
                     }
                     this.output.text = str;
                     this.output.show = true;
-                    this.output.timerId = setTimeout(function () {
-                            window.appView.output.show = false;
+                    // this.output.timerId = setTimeout(function () {
+                    // window.appView.output.show = false;
+                    // }, 2100);
+                    this.output.timerId = setTimeout(() => {
+                            this.output.show = false;
                         }, 2100);
                 }
             },
             outFadeIn: function (el, done) {
                 Velocity(el, 'stop');
-                Velocity(el, {opacity: 0.8}, {duration: 180});
+                Velocity(el, {opacity: 0.75}, {duration: 170});
             },
             outFadeOut: function (el, done) {
                 Velocity(el, 'stop');
@@ -232,7 +218,7 @@ window.appView = new Vue({
                 }
             },
             videoSizeToggle: function () {
-                if (this.video.sizeBtnText == 'auto')
+                if (this.video.sizeBtnText === 'auto')
                     this.videoAdapt();
                 else {
                     this.video.sizeBtnText = 'auto';
@@ -247,58 +233,47 @@ window.appView = new Vue({
                 if (this.browserShow && this.historyShow)
                     this.showHistory();
             },
-            getHistory: function getHistory(str) {
-                axios.get(encodeURI(str))
-                .then(function (response) {
-                    window.appView.historyShow = true;
-                    window.appView.history = response.data.history;
-                })
-                .catch(function (error) {
-                    window.appView.out(error.response.statusText);
-                });
+            historyCallBack: function (data) {
+                this.history = data;
             },
             showHistory: function () {
-                this.getHistory("/hist/ls");
+                server.list_history({}, this.historyCallBack);
+                this.historyShow = true;
             },
-            showFs: function (path) {
-                axios.get(encodeURI(path))
-                .then(function (response) {
-                    window.appView.historyShow = false;
-                    window.appView.filelist = response.data.filesystem;
-                })
-                .catch(function (error) {
-                    window.appView.out(error.response.statusText);
-                });
+            fileSystemCallBack: function (data) {
+                this.filelist = data;
             },
-            clearHistory: function () { // clear history button
-                if (confirm("Clear all history?"))
-                    this.getHistory("/hist/clear");
-            },
+            // clearHistory: function () { // clear history button
+                // if (confirm('Clear all history?'))
+                    // server.clear_history({}, this.historyCallBack);
+            // },
             remove: function (obj) {
-                this.getHistory("/hist/rm/" + obj.replace(/\?/g, "%3F")); //?to%3F #to%23
+                server.remove_history({src: obj}, this.historyCallBack);
             },
             move: function (obj) {
-                this.showFs("/fs/move/" + obj);
+                server.file_move({src: obj}, this.fileSystemCallBack);
+                if (this.historyShow)
+                    this.showHistory();
             },
             open: function (obj, type) {
                 switch (type) {
                 case "folder":
-                    this.showFs("/fs/ls/" + obj + "/");
+                    this.historyShow = false;
+                    server.file_list({path: obj}, this.fileSystemCallBack);
                     break;
                 case "mp4":
-                    if (!this.dlnaMode) {
+                    if (!this.dlnaMode)
                         this.playInWeb(obj);
-                    }
                 case "video":
                     if (this.dlnaMode)
-                        this.get("/dlna/load/" + obj);
+                        server.dlna_load({src: obj, host: window.location.host});
                     break;
                 default:
                 }
             },
             checkFileExist: function (obj) {
                 for (var item in this.history) {
-                    if (this.history[item].filename == obj)
+                    if (this.history[item].filename === obj)
                         return this.history[item].exist;
                 }
                 return true;
@@ -314,20 +289,16 @@ window.appView = new Vue({
                 this.browserShow = false;
             },
             setDmr: function (dmr) {
-                this.get("/dlna/setdmr/" + dmr);
+                server.dlna_set_dmr({dmr: dmr});
             },
             positionSeek: function () {
-                this.get("/dlna/seek/" + secondToTime(offset_value(timeToSecond(this.dlnaInfo.RelTime), this.positionBarVal, this.positionBarMax)));
+                var position = secondToTime(offset_value(timeToSecond(this.dlnaInfo.RelTime), this.positionBarVal, this.positionBarMax));
+                server.dlna_seek({position: position});
                 this.positionBarCanUpdate = true;
             },
             positionShow: function () {
                 this.out(secondToTime(offset_value(timeToSecond(this.dlnaInfo.RelTime), this.positionBarVal, this.positionBarMax)));
                 this.positionBarCanUpdate = false;
-            },
-            get: function (url) {
-                axios.get(url).then(function (response) {
-                    window.appView.out(response.data);
-                })
             },
             rate: function (ratex) {
                 this.out(ratex + 'X');
@@ -335,14 +306,12 @@ window.appView = new Vue({
             },
             videosave: function () {
                 this.video.lastplaytime = new Date().getTime(); //to detect if video is playing
-                if (this.$refs.video.readyState == 4 && Math.floor(Math.random() * 99) > 70) { //randomly save play position
-                    axios.post('/wp/save/' + this.video.src, {
+                if (this.$refs.video.readyState === 4 && Math.floor(Math.random() * 99) > 70) //randomly save play position
+                    server.save_history({
+                        src: this.video.src,
                         position: this.$refs.video.currentTime,
-                        duration: this.$refs.video.duration
-                    }).catch(function (error) {
-                        window.appView.out(error.response.statusText);
-                    });
-                }
+                        duration: this.$refs.video.duration,
+                    }, null);
             },
             videoload: function () {
                 this.videoAdapt();
@@ -375,19 +344,11 @@ window.appView = new Vue({
                 newtime = Math.min(newtime, this.positionBarMax);
                 this.out(secondToTime(newtime));
                 if (obj.type.indexOf("swipe") != -1) {
-                    this.get("/dlna/seek/" + secondToTime(newtime));
+                    server.dlna_seek({position: secondToTime(newtime)});
                     console.log('swipe');
-                }
-                else
+                } else
                     console.log('pan');
             },
-            // dlnaSwipe: function (obj) {
-                // var newtime = this.positionBarVal + obj.deltaX / 4;
-                // newtime = Math.max(newtime, 0);
-                // newtime = Math.min(newtime, this.positionBarMax);
-                // console.log('swipe');
-                // this.get("/dlna/seek/" + secondToTime(newtime));
-            // },
         },
         created: function () {
             if (typeof(localStorage.mode) !== "undefined")
@@ -398,7 +359,7 @@ window.appView = new Vue({
             if (!this.isIos) {
                 this.fixBar.show = false;
                 document.onmousemove = this.showFixBar;
-            };
+            }
             axios.defaults.timeout = 1999;
             // prevent double click for IOS
             document.addEventListener('touchstart', function (event) {
@@ -414,11 +375,77 @@ window.appView = new Vue({
                 }
                 lastTouchEnd = now;
             }, false);
-            this.showHistory();
+        },
+        mounted: function () {
+            this.$nextTick(function () {
+                // window.appView.showHistory();
+            });
         },
     });
 
-    
 
-var ws_link = dlnalink();
-setInterval("ws_link.check()", 1200);
+function webSocketLink(options) {
+    var ws = new ReconnectingWebSocket(options.url);
+    ws.onmessage = function (evt) {
+        var data = JSON.parse(evt.data);
+        options.onmessage(data);
+    }
+    ws.onopen = options.onopen;
+    ws.onclose = options.onclose;
+    ws.onerror = options.onerror;
+    return ws;
+}
+
+var methods = {};
+
+var connApi = webSocketLink({
+        url: 'ws://' + window.location.host + '/link',
+        onmessage: function (data) {
+            console.log(data);
+            var errorCallback = window.appView.out;
+            if (data.hasOwnProperty('jsonrpc')) {
+                if (data.hasOwnProperty('result')) {
+                    var callback = methods[data.id];
+                    delete methods[data.id];
+                    if (typeof(callback) === 'undefined')
+                        callback = window.appView.out;
+                    callback(data.result);
+                } else
+                    errorCallback(data.error);
+            } else
+                window.appView.dlnaInfo = data;
+        },
+        onclose: function () {
+            window.appView.dlnaInfo = {
+                CurrentTransportState: 'disconnected'
+            };
+            console.log('disconnected');
+        },
+        onopen: function () {
+            window.appView.out('connected');
+        }
+    });
+
+function JsonRpcWs() {
+    return new Proxy(function () {}, {
+        get: function (target, method, receiver) {
+            return function (params, callback) {
+                var json_data = {
+                    jsonrpc: '2.0',
+                    method: method,
+                    params: params,
+                    id: Math.floor(Math.random() * 9999)
+                };
+                connApi.send(JSON.stringify(json_data));
+                methods[json_data.id] = callback;
+            }
+        }
+    });
+}
+
+// var server = JsonRpc({
+        // url: '/api',
+        // callback: window.appView.out
+    // });
+
+var server = JsonRpcWs();

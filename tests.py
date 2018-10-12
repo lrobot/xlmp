@@ -4,7 +4,7 @@
 import unittest
 import json
 from tornado.testing import AsyncHTTPTestCase
-from xlmp import APP, TRACKER, LOADER
+from xlmp import APP
 
 class TestMain(AsyncHTTPTestCase):
     """test class"""
@@ -12,62 +12,40 @@ class TestMain(AsyncHTTPTestCase):
         return APP
 
     def test_main(self):
+        """test main page"""
         response = self.fetch('/')
         self.assertEqual(response.code, 200)
 
-    def test_main_dlna(self):
-        response = self.fetch('/dlna')
+    def test_playtoggle(self):
+        """test dlna playtoggle interface"""
+        response = self.fetch('/playtoggle')
         self.assertEqual(response.code, 200)
 
-    def test_fs_ls(self):
-        response = self.fetch('/fs/ls/')
+    def test_api(self):
+        """test json rpc web api"""
+        response = self.fetch('/api')
+        self.assertEqual(response.code, 405)
+
+        response = self.fetch('/api', method="POST", body='')
         self.assertEqual(response.code, 200)
-        self.assertEqual(type(json.loads(response.body.decode())), dict)
+        self.assertEqual(json.loads(response.body)['error']['code'], -32700)  # Parse error
 
-    def test_fs_move(self):
-        response = self.fetch('/fs/move/test')
-        self.assertEqual(response.code, 404)
-        # self.assertEqual(response.body, b'Hello, world')
-
-    def test_hist(self):
-        response = self.fetch('/hist/ls')
+        response = self.fetch('/api', method="POST", body='"x"')
         self.assertEqual(response.code, 200)
-        self.assertEqual(type(json.loads(response.body.decode())), dict)
-        response = self.fetch('/hist/test')
-        self.assertEqual(response.code, 404)
+        self.assertEqual(json.loads(response.body)['error']['code'], -32600)  # Invalid Request
 
-        response = self.fetch('/sys/backup')
+        response = self.fetch('/api', method="POST", body='{"jsonrpc":"2.0"}')
         self.assertEqual(response.code, 200)
-        response = self.fetch('/hist/clear')
+        self.assertEqual(json.loads(response.body)['error']['code'], -32601)  # Invalid params
+
+        response = self.fetch('/api', method="POST", body='{"jsonrpc":"2.0", "method":"test"}')
         self.assertEqual(response.code, 200)
-        response = self.fetch('/sys/restore')
+        self.assertEqual(response.body, b'')  # Notification
+
+        response = self.fetch(
+            '/api', method="POST", body='{"jsonrpc":"2.0", "method":"test", "id": 1}')
         self.assertEqual(response.code, 200)
-        # response = self.fetch('/hist/rm')
-
-    def test_sys(self):
-        response = self.fetch('/sys/test')
-        self.assertEqual(response.code, 403)
-        print(response.body)
-        print('*'*80)
-        # response = self.fetch('/hist/clear')
-        # response = self.fetch('/hist/rm')
-
-
-
-
-    # (r'/sys/(?P<opt>\w*)', SystemCommandHandler),
-
-    # (r'/dlna/link', DlnaWebSocketHandler),
-    # (r'/dlna/info', DlnaInfoHandler),
-    # (r'/dlna/setdmr/(?P<dmr>.*)', SetDmrHandler),
-    # (r'/dlna/searchdmr', SearchDmrHandler),
-    # (r'/dlna/vol/(?P<opt>\w*)', DlnaVolumeControlHandler),
-    # (r'/dlna/next', DlnaNextHandler),
-    # (r'/dlna/load/(?P<src>.*)', DlnaLoadHandler),
-    # (r'/dlna/(?P<opt>\w*)/?(?P<progress>.*)', DlnaHandler),
-
-    # (r'/wp/save/(?P<src>.*)', SaveHandler),
-    # (r'/wp/play/(?P<src>.*)', WebPlayerHandler),
+        self.assertEqual(json.loads(response.body)['result'], 'test message')  # Success
 
 if __name__ == '__main__':
     unittest.main()
