@@ -26,7 +26,7 @@ window.appView = new Vue({
         delimiters: ['${', '}'],
         el: '#v-main',
         data: {
-            devMode: false, // develop mode
+            devMode: false, // develop mode switch
             allSelected: false,
             removeCheckboxList: [],
             moveCheckboxList: [],
@@ -37,10 +37,7 @@ window.appView = new Vue({
             historyShow: true, // ture if browser window is history, false if browser window is file list
             history: [], // updated by ajax
             filelist: [], // updated by ajax
-            dlnaInfo: { // updated by websocket
-                CurrentDMR: 'no DMR',
-                TrackURI: '',
-            },
+            dlnaInfo: {}, // updated by websocket
             positionBarCanUpdate: true, //dlna position bar
             positionBarVal: 0,
             fixBar: {
@@ -62,17 +59,29 @@ window.appView = new Vue({
             icon: icon,
         },
         watch: {
+            'dlnaInfo.CurrentDMR': function () {
+                console.log(this.dlnaInfo.CurrentDMR);
+                if (!this.wpMode) {
+                    if (typeof(this.dlnaInfo.CurrentDMR) === "undefined")
+                        this.mode = '';
+                    else
+                        this.mode = 'DLNA';
+                }
+            },
             // editMode: function () {
                 // this.allSelected = false;
                 // this.removeCheckboxList = [];
             // },
             historyShow: function () {
                 this.allSelected = false;
+                // this.moveCheckboxList = [];
+                // this.removeCheckboxList = [];
             },
             browserShow: function () {
+                if (this.browserShow && this.historyShow)
+                    this.showHistory();
                 this.navCollapse = false;
-                if (!this.browserShow)
-                    this.editMode = false;
+                this.editMode = false;
             },
             'dlnaInfo.RelTime': function () {
                 console.log('reltime update');
@@ -85,16 +94,15 @@ window.appView = new Vue({
                     window.document.title = "DMC - Light Media Player";
                 } else if (this.wpMode) {
                     window.document.title = this.video.src + " - Light Media Player";
-                    // if (this.isIos)
                     touchWebPlayer();
                 } else
                     window.document.title = "Light Media Player";
             },
         },
         computed: {
-            dlnaOn: function () { // check if dlna dmr is exist
-                return typeof(this.dlnaInfo.CurrentDMR) !== "undefined" && this.dlnaInfo.CurrentDMR !== 'no DMR';
-            },
+            // dlnaOn: function () { // check if dlna dmr is exist
+                // return typeof(this.dlnaInfo.CurrentDMR) !== "undefined" && this.dlnaInfo.CurrentDMR !== 'no DMR';
+            // },
             dlnaMode: function () { // check if in dlna mode
                 return this.mode === 'DLNA';
             },
@@ -108,7 +116,7 @@ window.appView = new Vue({
             },
             wpPosition: function () {
                 for (var item in this.history) {
-                    if (this.history[item].filename === window.appView.video.src)
+                    if (this.history[item].fullpath === window.appView.video.src)
                         return this.history[item].position;
                 }
                 return 0;
@@ -118,6 +126,65 @@ window.appView = new Vue({
             test: function (obj, obj2) {
                 // console.log("test " + obj);
                 // this.out('test' + obj);
+            },
+            transitionBounceIn: function (el, done) {
+                Velocity(el, 'stop');
+                Velocity(el, {
+                    opacity: [1, 0],
+                    // translateY: [0, -75],
+                    transformOriginX: ["50%", "50%"],
+                    transformOriginY: ["50%", "50%"],
+                    scaleX: [1, .625],
+                    scaleY: [1, .625],
+                    translateZ: 0
+                }, {
+                    duration: 300,
+                    complete: done
+                });
+            },
+            transitionBounceOut: function (el, done) {
+                Velocity(el, 'stop');
+                Velocity(el, {
+                    opacity: [0, 1],
+                    // translateY: -75,
+                    transformOriginX: ["50%", "50%"],
+                    transformOriginY: ["50%", "50%"],
+                    scaleX: .5,
+                    scaleY: .5,
+                    translateZ: 0
+                }, {
+                    duration: 300,
+                    complete: done
+                });
+            },
+            transitionSlideUpBigIn: function (el, done) {
+                Velocity(el, 'stop');
+                Velocity(el, {
+                    opacity: [1, 0],
+                    translateY: [0, 75],
+                    translateZ: 0
+                }, {
+                    duration: 300,
+                    complete: done
+                });
+            },
+            transitionSlideDownBigOut: function (el, done) {
+                Velocity(el, 'stop');
+                Velocity(el, {
+                    opacity: [0, 1],
+                    translateY: 75,
+                    translateZ: 0
+                }, {
+                    duration: 300,
+                    complete: done
+                });
+            },
+           transitionPulse: function (el, done) {
+                Velocity(el, 'stop');
+                Velocity(el, 'callout.pulse', {
+                    duration: 300,
+                    complete: done
+                });
             },
             removeSelected: function () {
                 if (confirm('Remove ' + this.removeCheckboxList + '?')) {
@@ -180,26 +247,15 @@ window.appView = new Vue({
                     }
                     this.output.text = str;
                     this.output.show = true;
-                    // this.output.timerId = setTimeout(function () {
-                    // window.appView.output.show = false;
-                    // }, 2100);
                     this.output.timerId = setTimeout(() => {
                             this.output.show = false;
                         }, 2100);
                 }
             },
-            outFadeIn: function (el, done) {
-                Velocity(el, 'stop');
-                Velocity(el, {opacity: 0.75}, {duration: 170});
-            },
-            outFadeOut: function (el, done) {
-                Velocity(el, 'stop');
-                Velocity(el, {opacity: 0}, {duration: 600});
-            },
-            dlnaToogle: function () {
-                this.mode = this.mode !== '' ? '' : 'DLNA';
-                localStorage.mode = this.mode;
-            },
+            // dlnaToogle: function () {
+                // this.mode = this.mode !== '' ? '' : 'DLNA';
+                // localStorage.mode = this.mode;
+            // },
             videoAdapt: function () {
                 if (this.wpMode) {
                     var wHeight = window.innerHeight;
@@ -228,11 +284,11 @@ window.appView = new Vue({
                     }
                 }
             },
-            showModal: function () {
-                this.browserShow = !this.browserShow;
-                if (this.browserShow && this.historyShow)
-                    this.showHistory();
-            },
+            // showModal: function () {
+                // this.browserShow = !this.browserShow;
+                // if (this.browserShow && this.historyShow)
+                    // this.showHistory();
+            // },
             historyCallBack: function (data) {
                 this.history = data;
             },
@@ -243,10 +299,6 @@ window.appView = new Vue({
             fileSystemCallBack: function (data) {
                 this.filelist = data;
             },
-            // clearHistory: function () { // clear history button
-                // if (confirm('Clear all history?'))
-                    // server.clear_history({}, this.historyCallBack);
-            // },
             remove: function (obj) {
                 server.remove_history({src: obj}, this.historyCallBack);
             },
@@ -289,7 +341,7 @@ window.appView = new Vue({
                 this.browserShow = false;
             },
             setDmr: function (dmr) {
-                server.dlna_set_dmr({dmr: dmr});
+                server.dlna_set_dmr({dmr: dmr}, () => {this.mode='DLNA';});
             },
             positionSeek: function () {
                 var position = secondToTime(offset_value(timeToSecond(this.dlnaInfo.RelTime), this.positionBarVal, this.positionBarMax));
@@ -351,8 +403,6 @@ window.appView = new Vue({
             },
         },
         created: function () {
-            if (typeof(localStorage.mode) !== "undefined")
-                this.mode = localStorage.mode;
             window.onresize = this.videoAdapt;
             this.isIos = !!navigator.userAgent.match(/\(i[^;]+;( U;)? CPU.+Mac OS X/);
             this.isIos = true;
@@ -370,7 +420,8 @@ window.appView = new Vue({
             var lastTouchEnd = 0;
             document.addEventListener('touchend', function (event) {
                 var now = (new Date()).getTime();
-                if (now - lastTouchEnd <= 300) {
+                // if (now - lastTouchEnd <= 300) {
+                if (now - lastTouchEnd <= 350) {
                     event.preventDefault();
                 }
                 lastTouchEnd = now;
@@ -409,16 +460,15 @@ var connApi = webSocketLink({
                     delete methods[data.id];
                     if (typeof(callback) === 'undefined')
                         callback = window.appView.out;
-                    callback(data.result);
+                    if (callback)
+                        callback(data.result);
                 } else
                     errorCallback(data.error);
             } else
                 window.appView.dlnaInfo = data;
         },
         onclose: function () {
-            window.appView.dlnaInfo = {
-                CurrentTransportState: 'disconnected'
-            };
+            Vue.set(window.appView.dlnaInfo, 'CurrentTransportState', 'disconnected');
             console.log('disconnected');
         },
         onopen: function () {

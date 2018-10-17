@@ -39,7 +39,8 @@ class DMRTracker(Thread):
         self._loop = asyncio.new_event_loop()
         self._load_inprogess = Event()
         self.loop_playback = Event()
-        self.state = {'CurrentDMR': 'no DMR'}  # DMR device state
+        self.state = {}  # DMR device state
+        # self.state = {'CurrentDMR': 'no DMR'}  # DMR device state
         self.dmr = None  # DMR device object
         self.all_devices = []  # DMR device list
         self.url_prefix = None
@@ -126,7 +127,8 @@ class DMRTracker(Thread):
                     logging.warning('Losing DMR count: %d', failure)
                     if failure >= 3:
                         logging.info('No DMR currently.')
-                        self.state = {'CurrentDMR': 'no DMR'}
+                        # self.state = {'CurrentDMR': 'no DMR'}
+                        self.state = {}
                         self.dmr = None
                 yield from asyncio.sleep(0.7)
                 sleep(0.1)
@@ -185,8 +187,6 @@ class DMRTracker(Thread):
 
     def loadnext(self, src=None):
         """load next video"""
-        # if not self.state.get('TrackURI'):
-            # return False
         if not src:
             src = self.state.get('TrackURI')
         if not src:
@@ -194,9 +194,7 @@ class DMRTracker(Thread):
         next_file = get_next_file(src)
         logging.info('next file recognized: %s', next_file)
         if next_file:
-            # url = '%s%s' % (self.url_prefix, quote(next_file))
             return self.load(next_file)
-            # return True
         return False
 
     def loadonce(self, url):
@@ -275,7 +273,6 @@ def time_to_second(time_str):
 
 def get_size(path):
     """get file size in human read format from file"""
-    # size = os.path.getsize('%s/%s' % (VIDEO_PATH, ''.join(filename)))
     size = os.path.getsize(path)
     if size < 0:
         return 'Out of Range'
@@ -336,7 +333,7 @@ class DlnaPlayToggleHandler(tornado.web.RequestHandler):
 class LinkWebSocketHandler(tornado.websocket.WebSocketHandler):
     """DLNA info retriever use web socket"""
     users = set()
-    last_message = {}
+    last_message = None
 
     def data_received(self, chunk):
         pass

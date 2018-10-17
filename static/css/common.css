@@ -115,7 +115,7 @@ input[type=range]::-moz-range-thumb {
     text-overflow: ellipsis;
 }
 .output-container {
-    opacity: 0;
+    /* opacity: 0; */
     pointer-events: none;
     z-index: 1080;
     width: 100%;
@@ -169,9 +169,9 @@ button {
 
 .rotate-90 {
     transform:rotate(90deg);
-    -moz-transform:rotate(90deg); 	/* Firefox */
-    -webkit-transform:rotate(90deg); /* Safari and Chrome */
-    -o-transform:rotate(90deg); 	/* Opera */
+    -moz-transform:rotate(90deg);
+    -webkit-transform:rotate(90deg);
+    -o-transform:rotate(90deg);
 }
 .dropdown-header {
     max-width: 80vw;
@@ -187,3 +187,11 @@ button {
 .btn-link {
     box-shadow: none;
 }
+.btn-outline-dark:hover {
+    color: #343a40;
+    background-color: transparent;
+}
+/* .btn-outline-success:hover { */
+    /* color: #28a745; */
+    /* background-color: transparent; */
+/* } */
