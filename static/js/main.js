@@ -216,7 +216,8 @@ window.appView = new Vue({
                 }
             },
             volUp: function (obj) {
-                server.dlna_vol(['up']);
+                // server.dlna_vol(['up']);
+                serverNew.dlna_vol('up').then(console.log).catch(console.log);
             },
             volDown: function (obj) {
                 server.dlna_vol(['down']);
@@ -252,10 +253,6 @@ window.appView = new Vue({
                         }, 2100);
                 }
             },
-            // dlnaToogle: function () {
-                // this.mode = this.mode !== '' ? '' : 'DLNA';
-                // localStorage.mode = this.mode;
-            // },
             videoAdapt: function () {
                 if (this.wpMode) {
                     var wHeight = window.innerHeight;
@@ -284,11 +281,6 @@ window.appView = new Vue({
                     }
                 }
             },
-            // showModal: function () {
-                // this.browserShow = !this.browserShow;
-                // if (this.browserShow && this.historyShow)
-                    // this.showHistory();
-            // },
             historyCallBack: function (data) {
                 this.history = data;
             },
@@ -355,6 +347,12 @@ window.appView = new Vue({
             rate: function (ratex) {
                 this.out(ratex + 'X');
                 this.$refs.video.playbackRate = ratex;
+            },
+            seek: function (position) {
+              if (this.dlnaMode)
+                server.dlna_seek({position: secondToTime(position)});
+              else if (this.wpMode)
+                this.$refs.video.currentTime = position;
             },
             videosave: function () {
                 this.video.lastplaytime = new Date().getTime(); //to detect if video is playing
@@ -494,10 +492,12 @@ function JsonRpcWs() {
 }
 
 
-if (window.appView.devMode)
-    var server = JsonRpcWs();
-else
-    var server = JsonRpc({
-            url: '/api',
-            callback: window.appView.out
-        });
+// if (window.appView.devMode)
+    // var server = JsonRpcWs();
+// else
+var server = JsonRpcOld({
+        url: '/api',
+        callback: window.appView.out
+    });
+
+var serverNew = JsonRpc('/api');
