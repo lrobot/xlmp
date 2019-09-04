@@ -21,9 +21,9 @@ COPY docker/xlmp.conf /etc/nginx/conf.d/
 COPY docker/deploy /usr/local/bin
 
 # git clone
-RUN git clone https://github.com/XenosLu/xlmp.git /xlmp
+RUN git clone https://github.com/lrobot/xlmp.git /xlmp
 
-EXPOSE 80
+EXPOSE 81
 
 # media folder:
 VOLUME /xlmp/media
