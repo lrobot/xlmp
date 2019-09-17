@@ -52,6 +52,10 @@
                 <i class="oi oi-monitor"></i>
                 DLNA Mode
               </b-dropdown-item>
+              <b-dropdown-item v-show="devMode" @click="logout">
+                <i class="oi oi-monitor"></i>
+                Logout 
+              </b-dropdown-item>
               <b-dropdown-divider></b-dropdown-divider>
               <b-dropdown-item @click="server.dlna_search(null,null)">
                 <i class="oi oi-magnifying-glass"></i>

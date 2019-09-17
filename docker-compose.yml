@@ -1,0 +1,17 @@
+#https://docs.docker.com/compose/compose-file/
+version: '2'
+services:
+  xlmp:
+    build: .
+    network_mode: "host"
+    #image: dockercloud/haproxy
+    #links:
+    #  - buildbot
+    volumes:
+      - /data/wk/xlmp/:/xlmp/
+      - /data/lry_english/:/xlmp/media/
+    expose:
+        - 82
+    #ports:
+    #  - 8080:8080
+    #  - 9989:9989   # for external workers

@@ -127,6 +127,9 @@ window.appView = new Vue({
                 // console.log("test " + obj);
                 // this.out('test' + obj);
             },
+            logout: function(){
+                window.location = "//" + window.location.host + "/logout";
+            },
             transitionBounceIn: function (el, done) {
                 Velocity(el, 'stop');
                 Velocity(el, {
@@ -309,6 +312,11 @@ window.appView = new Vue({
                 case "mp4":
                     if (!this.dlnaMode)
                         this.playInWeb(obj);
+                case "other":
+                    if (!this.dlnaMode)
+                        this.playInWeb(obj);
+		    else
+                       server.dlna_load({src: obj, host: window.location.host});
                 case "video":
                     if (this.dlnaMode)
                         server.dlna_load({src: obj, host: window.location.host});

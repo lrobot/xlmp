@@ -300,17 +300,30 @@ def check_dmr_exist(func):
     wrapper.__name__ = func.__name__
     return wrapper
 
+gusers = set(["a sdfaf;23eerl1", " asdfasdfasdfas123093199*d2"])
+class BaseHandler(tornado.web.RequestHandler):
+    def get_current_user(self):
+        try:
+            return self.get_secure_cookie("user").decode('ascii')
+        except:
+            return ""
 
-class IndexHandler(tornado.web.RequestHandler):
+class IndexHandler(BaseHandler):
     """index web page"""
     def data_received(self, chunk):
         pass
 
     def get(self, *args, **kwargs):
+        logging.info("user is")
+        logging.info(self.current_user)
+        logging.info(self.get_current_user())
+        if self.get_current_user() not in gusers:
+            self.redirect("/login")
+            return
         self.render('index.html')
 
 
-class DlnaPlayToggleHandler(tornado.web.RequestHandler):
+class DlnaPlayToggleHandler(BaseHandler):
     """DLNA operation web interface"""
     def data_received(self, chunk):
         pass
@@ -327,6 +340,24 @@ class DlnaPlayToggleHandler(tornado.web.RequestHandler):
             self.finish({'result': 'success'})
         if not ret:
             self.finish({'error': 'Failed!'})
+class LoginHandler(BaseHandler):
+    def get(self):
+        self.write('<html><body><form action="/login" method="post">'
+                   'Name: <input type="text" name="name">'
+                   '<input type="submit" value="Sign in">'
+                   '</form></body></html>')
+    def post(self):
+        logging.info("user is")
+        logging.info(self.get_argument("name"))
+        if self.get_argument("name") in gusers:
+            self.set_secure_cookie("user", self.get_argument("name"))
+            self.redirect("/")
+        else:
+            self.redirect("/login")
+class LogoutHandler(BaseHandler):
+    def get(self):
+        self.clear_cookie("user")
+        self.redirect("/login")
 
 
 class LinkWebSocketHandler(tornado.websocket.WebSocketHandler):
@@ -359,7 +390,7 @@ class LinkWebSocketHandler(tornado.websocket.WebSocketHandler):
         self.users.remove(self)
 
 
-class ApiHandler(tornado.web.RequestHandler):
+class ApiHandler(BaseHandler):
     # executor = ThreadPoolExecutor(99)
     """api test"""
     def data_received(self, chunk):
@@ -646,6 +677,8 @@ HANDLERS = [
     (r'/link', LinkWebSocketHandler),
     (r'/playtoggle', DlnaPlayToggleHandler),
     (r'/video/(.*)', tornado.web.StaticFileHandler, {'path': VIDEO_PATH}),
+    (r"/login", LoginHandler),
+    (r"/logout", LogoutHandler),
 ]
 
 SETTINGS = {
@@ -654,6 +687,7 @@ SETTINGS = {
     'gzip': True,
     'debug': True,
     'websocket_ping_interval': 0.2,
+    'cookie_secret': 'sfasdfasfd22398p4thdfgasad',
 }
 
 APP = tornado.web.Application(HANDLERS, **SETTINGS)

@@ -22,11 +22,12 @@ COPY docker/xlmp.conf /etc/nginx/conf.d/
 COPY docker/deploy /usr/local/bin
 
 # git clone
-RUN git clone https://github.com/lrobot/xlmp.git /xlmp
+# RUN git clone https://github.com/lrobot/xlmp.git /xlmp
 
 EXPOSE 82
 
 # media folder:
+VOLUME /xlmp
 VOLUME /xlmp/media
 
 # ENTRYPOINT ["/bin/sh", "/xlmp/docker/docker-entrypoint.sh"]
